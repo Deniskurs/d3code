@@ -22,6 +22,8 @@ interface PullRequestThreadLinksProps {
   reference: PullRequestRef;
   url: string;
   threadRef: ScopedThreadRef | null;
+  display: "count" | "menu-item" | "picker";
+  onPickerOpenChange?: (open: boolean) => void;
 }
 
 /** Thread relations belong to the detail environment, including when another environment is active. */
@@ -41,6 +43,8 @@ function EnabledPullRequestThreadLinks({
   reference,
   url,
   threadRef,
+  display,
+  onPickerOpenChange,
 }: PullRequestThreadLinksProps) {
   const parsed = parseChangeRequestUrl(url);
   const currentThreadRef = threadRef?.environmentId === environmentId ? threadRef : null;
@@ -48,7 +52,7 @@ function EnabledPullRequestThreadLinks({
   const linking = usePullRequestLinking(environmentId);
   const linkedHere = linking.isLinked(thread, url);
   const relations = useEnvironmentQuery(
-    linking.mode === "multiple"
+    linking.mode === "multiple" && display !== "menu-item"
       ? pullRequestEnvironment.linkedThreads({
           environmentId,
           input: parsed === null ? reference : { ...reference, ...parsed },
@@ -61,7 +65,6 @@ function EnabledPullRequestThreadLinks({
   if (relations.data !== null && relations.data !== lastRelations) {
     setLastRelations(relations.data);
   }
-  const [pickerOpen, setPickerOpen] = useState(false);
   const [pending, setPending] = useState(false);
 
   const changeLink = async (threadId: ThreadId, remove: boolean) => {
@@ -80,7 +83,7 @@ function EnabledPullRequestThreadLinks({
       setPending(false);
     }
     relations.refresh();
-    setPickerOpen(false);
+    onPickerOpenChange?.(false);
   };
 
   if (parsed === null || (!linkedHere && !linking.canLink(url))) return null;
@@ -92,7 +95,7 @@ function EnabledPullRequestThreadLinks({
       : "Linked threads";
   return (
     <>
-      {linkedThreads.length > 0 || relations.error !== null ? (
+      {display === "count" && (linkedThreads.length > 0 || relations.error !== null) ? (
         <Menu>
           <MenuTrigger
             render={
@@ -135,47 +138,42 @@ function EnabledPullRequestThreadLinks({
           </MenuPopup>
         </Menu>
       ) : null}
-      {currentThreadRef !== null ? (
-        <Button
-          size="xs"
-          variant="outline"
+      {display === "menu-item" ? (
+        <MenuItem
           disabled={pending}
-          onClick={() => void changeLink(currentThreadRef.threadId, linkedHere)}
-          aria-label={linkedHere ? "Unlink from this thread" : "Link to this thread"}
+          onClick={() => {
+            if (currentThreadRef !== null) {
+              void changeLink(currentThreadRef.threadId, linkedHere);
+            } else {
+              onPickerOpenChange?.(true);
+            }
+          }}
         >
           {linkedHere ? (
             <UnlinkIcon aria-hidden className="size-3.5" />
           ) : (
             <LinkIcon aria-hidden className="size-3.5" />
           )}
-          <span className="@max-[40rem]/pr-header:hidden">
-            {linkedHere ? "Unlink from thread" : "Link to thread"}
-          </span>
-        </Button>
-      ) : (
-        <Button
-          size="xs"
-          variant="outline"
-          onClick={() => setPickerOpen(true)}
-          aria-label="Link to thread"
-        >
-          <LinkIcon aria-hidden className="size-3.5" />
-          <span className="@max-[40rem]/pr-header:hidden">Link to thread</span>
-        </Button>
-      )}
-      <Dialog open={pickerOpen} onOpenChange={setPickerOpen}>
-        <DialogPopup className="max-w-md" showCloseButton={false}>
-          <DialogTitle className="sr-only">Link pull request to a thread</DialogTitle>
-          {pickerOpen ? (
+          {linkedHere
+            ? "Unlink from this thread"
+            : currentThreadRef
+              ? "Link to this thread"
+              : "Link to thread"}
+        </MenuItem>
+      ) : null}
+      {display === "picker" ? (
+        <Dialog open onOpenChange={onPickerOpenChange}>
+          <DialogPopup className="max-w-md" showCloseButton={false}>
+            <DialogTitle className="sr-only">Link pull request to a thread</DialogTitle>
             <ThreadPicker
               environmentId={environmentId}
               url={url}
               pending={pending}
               onSelect={(threadId) => void changeLink(threadId, false)}
             />
-          ) : null}
-        </DialogPopup>
-      </Dialog>
+          </DialogPopup>
+        </Dialog>
+      ) : null}
     </>
   );
 }
