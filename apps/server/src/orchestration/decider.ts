@@ -1075,9 +1075,18 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         occurredAt,
         commandId: command.commandId,
       });
-      // A host-discovered stack member leaves a tombstone instead of a hole,
-      // so the next sync does not re-add what the user just removed.
-      if (existing.source === "stack") {
+      // Any known native-stack member needs a tombstone, regardless of who linked it.
+      // A sibling can rediscover it even before this link has its own stack snapshot.
+      const belongsToStack =
+        existing.source === "stack" ||
+        existing.stack !== null ||
+        thread.pullRequests.some(
+          (link) =>
+            link.host.toLowerCase() === key.host &&
+            link.repository.toLowerCase() === key.repository &&
+            link.stack?.layers.some((layer) => layer.number === key.number),
+        );
+      if (belongsToStack) {
         return {
           ...eventBase,
           type: "thread.pull-request-linked",

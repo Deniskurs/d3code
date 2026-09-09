@@ -315,6 +315,61 @@ it.layer(NodeServices.layer)("pull request link decider", (it) => {
     }),
   );
 
+  for (const source of ["manual", "agent", "created"] as const) {
+    it.effect(`unlinking a ${source} member prevents its sibling rediscovering it`, () =>
+      Effect.gen(function* () {
+        const member = makeLink({ source });
+        const sibling = makeLink({
+          number: 43,
+          source: "stack",
+          stack: {
+            kind: "native",
+            id: "stack-1",
+            number: 1,
+            url: "https://github.com/t3tools/t3code/stack/1",
+            base: "main",
+            layers: [
+              { number: 42, headBranch: "first", state: "open" },
+              { number: 43, headBranch: "second", state: "open" },
+            ],
+          },
+        });
+        let model = makeReadModel([member, sibling]);
+        const decided = yield* decideOrchestrationCommand({
+          readModel: model,
+          command: {
+            type: "thread.pull-request.unlink",
+            commandId: CommandId.make("remove"),
+            threadId: THREAD_ID,
+            host: member.host,
+            repository: member.repository,
+            number: member.number,
+          },
+        });
+        const event = expectSingleEvent(decided, "thread.pull-request-linked");
+        model = yield* projectEvent(model, { ...event, sequence: 1 });
+        expect(model.threads[0]!.pullRequests).toEqual([
+          { ...member, source: "stack-dismissed" },
+          sibling,
+        ]);
+        const rediscovered = yield* decideOrchestrationCommand({
+          readModel: model,
+          command: {
+            type: "thread.pull-request.link",
+            commandId: CommandId.make("rediscovered"),
+            threadId: THREAD_ID,
+            host: member.host,
+            repository: member.repository,
+            number: member.number,
+            url: member.url,
+            source: "stack",
+          },
+        }).pipe(Effect.result);
+        expect(rediscovered._tag).toBe("Failure");
+      }),
+    );
+  }
+
   it.effect("rejects unlinking a pull request that is not linked", () =>
     Effect.gen(function* () {
       const error = yield* decideOrchestrationCommand({
