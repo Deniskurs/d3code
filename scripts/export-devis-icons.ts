@@ -21,8 +21,12 @@ async function output(path: string, data: string | Buffer) {
   const destination = `${root}${path}`;
   const bytes = Buffer.from(data);
   if (check) {
-    if (!(await NodeFSP.readFile(destination)).equals(bytes))
-      throw new Error(`Icon is stale: ${path}`);
+    const existing = await NodeFSP.readFile(destination);
+    const matches = path.endsWith(".json")
+      ? JSON.stringify(JSON.parse(existing.toString("utf8"))) ===
+        JSON.stringify(JSON.parse(bytes.toString("utf8")))
+      : existing.equals(bytes);
+    if (!matches) throw new Error(`Icon is stale: ${path}`);
   } else {
     await NodeFSP.mkdir(destination.substring(0, destination.lastIndexOf("/")), {
       recursive: true,
