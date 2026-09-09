@@ -742,7 +742,6 @@ export const OmpSettings = makeProviderSettingsSchema(
 );
 export type OmpSettings = typeof OmpSettings.Type;
 
-
 /**
  * Antigravity ACP auth methods. Personal and Enterprise open a Google sign-in
  * in the browser. The API key and Agent Platform methods take credentials from

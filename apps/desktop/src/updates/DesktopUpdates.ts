@@ -1,3 +1,4 @@
+import { d3Build } from "@t3tools/shared/d3Build";
 import {
   DesktopUpdateChannelSchema,
   type DesktopRuntimeInfo,
@@ -252,6 +253,9 @@ function getAutoUpdateDisabledReason(args: {
   disabledByEnv: boolean;
   hasUpdateFeedConfig: boolean;
 }): string | null {
+  if (!d3Build.automaticUpdates) {
+    return "D3 Code updates are installed manually from your custom build.";
+  }
   if (!args.hasUpdateFeedConfig) {
     return "Automatic updates are not available because no update feed is configured.";
   }
@@ -869,7 +873,7 @@ export const make = Effect.gen(function* () {
       const appUpdateYmlConfig = yield* readAppUpdateYml;
       yield* Ref.set(appUpdateYmlConfigRef, appUpdateYmlConfig);
 
-      if (config.mockUpdates) {
+      if (config.mockUpdates && d3Build.automaticUpdates) {
         yield* electronUpdater.setFeedURL({
           provider: "generic",
           url: `http://localhost:${config.mockUpdateServerPort}`,

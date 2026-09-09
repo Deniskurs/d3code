@@ -246,6 +246,9 @@ export class AcpSessionRuntime extends Context.Service<
      * @see https://agentclientprotocol.com/protocol/schema#session/cancel
      */
     readonly cancel: Effect.Effect<void, EffectAcpErrors.AcpError>;
+    readonly cancelPendingPrompt: Effect.Effect<void, EffectAcpErrors.AcpError>;
+    readonly clearPendingCancel: Effect.Effect<void>;
+    readonly awaitExit: Effect.Effect<number, EffectAcpErrors.AcpError>;
     /**
      * Selects the active mode through the negotiated `mode` configuration option.
      * This is a no-op when the requested mode is already active.
@@ -916,6 +919,7 @@ export const make = (
       yield* child.kill({ forceKillAfter: "1 second" }).pipe(Effect.ignore);
     });
 
+    const pendingCancel = yield* Ref.make(false);
     const cancel = Effect.gen(function* () {
       const started = yield* getStartedState;
       const activePrompt = yield* Ref.get(activePromptRef);
@@ -977,6 +981,22 @@ export const make = (
       drainEvents,
       getModeState: Ref.get(modeStateRef),
       getConfigOptions: Ref.get(configOptionsRef),
+      awaitExit: child.exitCode.pipe(
+        Effect.mapError(
+          (cause) =>
+            new EffectAcpErrors.AcpTransportError({
+              detail: "Failed to wait for the ACP child process to exit.",
+              cause,
+            }),
+        ),
+      ),
+      clearPendingCancel: Ref.set(pendingCancel, false),
+      cancelPendingPrompt: promptDispatchSemaphore.withPermit(
+        Effect.gen(function* () {
+          yield* Ref.set(pendingCancel, true);
+          yield* cancel;
+        }),
+      ),
       prompt: (payload, promptOptions?) =>
         promptSerializationSemaphore.withPermit(
           Effect.acquireUseRelease(
@@ -992,7 +1012,15 @@ export const make = (
                 const fiber = yield* runLoggedRequest(
                   "session/prompt",
                   requestPayload,
-                  acp.agent.prompt(requestPayload),
+                  Ref.getAndSet(pendingCancel, false).pipe(
+                    Effect.flatMap((cancelled) =>
+                      cancelled
+                        ? Effect.succeed({
+                            stopReason: "cancelled",
+                          } satisfies EffectAcpSchema.PromptResponse)
+                        : acp.agent.prompt(requestPayload),
+                    ),
+                  ),
                 ).pipe(Effect.forkIn(runtimeScope));
                 const active = { fiber, completed } satisfies AcpActivePrompt;
                 yield* Ref.set(activePromptRef, Option.some(active));

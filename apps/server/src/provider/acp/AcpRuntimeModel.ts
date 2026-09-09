@@ -82,6 +82,11 @@ export interface AcpPermissionRequest {
 
 export type AcpParsedSessionEvent =
   | {
+      readonly _tag: "UsageUpdated";
+      readonly payload: EffectAcpSchema.UsageUpdate;
+      readonly rawPayload: unknown;
+    }
+  | {
       readonly _tag: "ModeChanged";
       readonly modeId: string;
     }
@@ -158,6 +163,28 @@ export function findSessionConfigOption(
     return undefined;
   }
   return configOptions.find((option) => option.id.trim() === normalizedConfigId);
+}
+
+export function extractConfigOptionsFromSessionUpdate(
+  params: EffectAcpSchema.SessionNotification,
+): ReadonlyArray<EffectAcpSchema.SessionConfigOption> | undefined {
+  return params.update.sessionUpdate === "config_option_update"
+    ? params.update.configOptions
+    : undefined;
+}
+
+export function configOptionCurrentValueMatches(
+  configOption: EffectAcpSchema.SessionConfigOption,
+  value: string | boolean,
+): boolean {
+  const currentValue = configOption.currentValue;
+  if (configOption.type === "boolean") {
+    return currentValue === value;
+  }
+  if (typeof currentValue !== "string") {
+    return false;
+  }
+  return currentValue.trim() === String(value).trim();
 }
 
 export function collectSessionConfigOptionValues(
@@ -877,6 +904,20 @@ export function parseSessionUpdateEvent(params: EffectAcpSchema.SessionNotificat
           rawPayload: params,
         });
       }
+      break;
+    }
+    case "usage_update": {
+      const payload: EffectAcpSchema.UsageUpdate = {
+        ...(upd._meta !== undefined ? { _meta: upd._meta } : {}),
+        ...(upd.cost !== undefined ? { cost: upd.cost } : {}),
+        size: upd.size,
+        used: upd.used,
+      };
+      events.push({
+        _tag: "UsageUpdated",
+        payload,
+        rawPayload: params,
+      });
       break;
     }
     default:

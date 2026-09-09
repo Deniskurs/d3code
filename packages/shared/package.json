@@ -278,6 +278,10 @@
     "./dateTime": {
       "types": "./src/dateTime.ts",
       "import": "./src/dateTime.ts"
+    },
+    "./d3Build": {
+      "types": "./src/d3Build.ts",
+      "import": "./src/d3Build.ts"
     }
   },
   "scripts": {

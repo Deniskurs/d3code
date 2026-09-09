@@ -1,3 +1,5 @@
+import { d3Build } from "@t3tools/shared/d3Build";
+import * as Schema from "effect/Schema";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
@@ -30,10 +32,20 @@ export type ServiceReconcileResult =
       readonly plan: BootService.BootServicePlan;
     };
 
+export class D3ManagedServiceUnavailable extends Schema.TaggedError<D3ManagedServiceUnavailable>()(
+  "D3ManagedServiceUnavailable",
+  {},
+) {
+  override get message(): string {
+    return "D3 Code's managed service is not packaged yet. Keep the D3 desktop app running to host your environment.";
+  }
+}
+
 /** Install, update, or repair the service using the CLI version running this command. */
 export const reconcileService = Effect.fn("cli.service.reconcile")(function* (options?: {
   readonly allowDowngrade?: boolean;
 }) {
+  if (!d3Build.supportsManagedService) return yield* new D3ManagedServiceUnavailable();
   const service = yield* BootService.BootService;
   const status = yield* service.status;
   if (status.installed && status.current) {
@@ -184,6 +196,7 @@ const serviceStatusCommand = Command.make("status", projectLocationFlags).pipe(
 );
 
 export const offerServiceDuringOnboarding = Effect.gen(function* () {
+  if (!d3Build.supportsManagedService) return false;
   const service = yield* BootService.BootService;
   const status = yield* service.status;
   const { supported, installed, current } = status;
@@ -236,11 +249,16 @@ export const offerServiceDuringOnboarding = Effect.gen(function* () {
 });
 
 export const recoverServiceOnboardingOffer = <R>(
-  offer: Effect.Effect<boolean, BootService.BootServiceError | Terminal.QuitError, R>,
+  offer: Effect.Effect<
+    boolean,
+    BootService.BootServiceError | D3ManagedServiceUnavailable | Terminal.QuitError,
+    R
+  >,
 ) =>
   offer.pipe(
     Effect.catchTags({
       QuitError: () => Effect.succeed(false),
+      D3ManagedServiceUnavailable: () => Effect.succeed(false),
       BootServiceUnsupportedError: (error) =>
         Console.log(`Skipping background setup: ${error.message}`).pipe(Effect.as(false)),
       BootServiceCommandError: (error) =>

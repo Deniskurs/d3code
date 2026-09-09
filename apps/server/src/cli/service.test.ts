@@ -1,3 +1,4 @@
+import { d3Build } from "@t3tools/shared/d3Build";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, expect, it } from "@effect/vitest";
 import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
@@ -19,6 +20,8 @@ import {
   recoverServiceOnboardingOffer,
   serviceCommand,
 } from "./service.ts";
+
+vi.mock("@t3tools/shared/d3Build", () => ({ d3Build: { supportsManagedService: true } }));
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -245,5 +248,22 @@ it.effect("keeps the manual-server fallback when background prerequisites fail",
       Effect.fail(new BootService.BootServicePrerequisiteError({ problem: "linger-disabled" })),
     );
     expect(ready).toBe(false);
+  }),
+);
+
+it.effect("D3 refuses installation of an official npm service runtime", () =>
+  Effect.gen(function* () {
+    const { service, installOptions } = makeTestService(status);
+    d3Build.supportsManagedService = false;
+    try {
+      const error = yield* reconcileService().pipe(
+        Effect.provideService(BootService.BootService, service),
+        Effect.flip,
+      );
+      expect(error._tag).toBe("D3ManagedServiceUnavailable");
+      expect(installOptions).toEqual([]);
+    } finally {
+      d3Build.supportsManagedService = true;
+    }
   }),
 );

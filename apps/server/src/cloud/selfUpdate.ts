@@ -1,3 +1,4 @@
+import { d3Build } from "@t3tools/shared/d3Build";
 import {
   ServerSelfUpdateError,
   type ServerSelfUpdateCapability,
@@ -183,6 +184,9 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
   const update: ServerSelfUpdate["Service"]["update"] = Effect.fn(
     "cloud.server_self_update.update",
   )(function* (input, reportProgress = () => Effect.void, onHandoffAccepted = () => Effect.void) {
+    if (!d3Build.automaticUpdates) {
+      return yield* failWith("D3 Code updates are installed manually from your custom build.");
+    }
     if (capability === "desktop-managed") {
       // input.targetVersion is meaningless here: the desktop app's own
       // update feed decides what it downloads, and the result carries what

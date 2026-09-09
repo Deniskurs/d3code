@@ -12,6 +12,11 @@ import * as EffectAcpAgent from "effect-acp/agent";
 import * as AcpError from "effect-acp/errors";
 import type * as AcpSchema from "effect-acp/schema";
 
+const emitEditPermission = process.env.T3_ACP_EMIT_EDIT_PERMISSION === "1";
+const exitOnPrompt = process.env.T3_ACP_EXIT_ON_PROMPT === "1";
+const omitCreateConfigOptions = process.env.T3_ACP_OMIT_CREATE_CONFIG_OPTIONS === "1";
+const emitConfigOptionsOnPrompt = process.env.T3_ACP_EMIT_CONFIG_OPTIONS_ON_PROMPT === "1";
+const echoCurrentModel = process.env.T3_ACP_ECHO_CURRENT_MODEL === "1";
 const requestLogPath = process.env.T3_ACP_REQUEST_LOG_PATH;
 const exitLogPath = process.env.T3_ACP_EXIT_LOG_PATH;
 const antigravityProfile = process.env.T3_ACP_ANTIGRAVITY === "1";
@@ -440,7 +445,7 @@ const program = Effect.gen(function* () {
         sessionId,
         modes: modeState(),
         models: modelState(),
-        configOptions: configOptions(),
+        ...(omitCreateConfigOptions ? {} : { configOptions: configOptions() }),
       };
     }),
   );
@@ -487,6 +492,14 @@ const program = Effect.gen(function* () {
       update: {
         sessionUpdate: "agent_message_chunk",
         content: { type: "text", text: "replayed assistant text" },
+      },
+    });
+    writeJsonRpcNotification("session/update", {
+      _meta: { isReplay: true },
+      sessionId: requestedSessionId,
+      update: {
+        sessionUpdate: "config_option_update",
+        configOptions: configOptions(),
       },
     });
   };
@@ -654,6 +667,11 @@ const program = Effect.gen(function* () {
         yield* Effect.sleep(`${promptDelayMs} millis`);
       }
 
+      if (exitOnPrompt) {
+        return yield* Effect.sync(() => {
+          process.exit(9);
+        });
+      }
       if (failPrompt) {
         return yield* AcpError.AcpRequestError.internalError("Mock prompt failure");
       }
@@ -935,20 +953,30 @@ const program = Effect.gen(function* () {
             sessionId: requestedSessionId,
             toolCall: {
               toolCallId: index === 0 ? toolCallId : `${toolCallId}-${index + 1}`,
-              title: process.env.T3_ACP_PERMISSION_TITLE ?? `\`${command}\``,
-              kind: "execute",
+              title: emitEditPermission
+                ? "Delete obsolete file"
+                : (process.env.T3_ACP_PERMISSION_TITLE ?? `\`${command}\``),
+              ...(emitEditPermission
+                ? { locations: [{ path: "/tmp/obsolete.ts" }] }
+                : { kind: "execute" as const }),
               status: "pending",
-              rawInput: {
-                variant: "Bash",
-                command,
-                description: index === 0 ? "Read package metadata" : "Read it again",
-              },
+              ...(emitEditPermission
+                ? {}
+                : {
+                    rawInput: {
+                      variant: "Bash",
+                      command,
+                      description: index === 0 ? "Read package metadata" : "Read it again",
+                    },
+                  }),
               content: [
                 {
                   type: "content",
                   content: {
                     type: "text",
-                    text: `Not in allowlist: ${command}`,
+                    text: emitEditPermission
+                      ? "Delete obsolete file"
+                      : `Not in allowlist: ${command}`,
                   },
                 },
               ],
@@ -969,8 +997,8 @@ const program = Effect.gen(function* () {
           update: {
             sessionUpdate: "tool_call_update",
             toolCallId,
-            title: "Terminal",
-            kind: "execute",
+            title: emitEditPermission ? "Delete obsolete file" : "Terminal",
+            ...(emitEditPermission ? {} : { kind: "execute" as const }),
             status: "completed",
             rawOutput: {
               exitCode: 0,
@@ -1200,6 +1228,16 @@ const program = Effect.gen(function* () {
         return { stopReason: "end_turn" };
       }
 
+      if (emitConfigOptionsOnPrompt) {
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "config_option_update",
+            configOptions: configOptions(),
+          },
+        });
+      }
+
       yield* agent.client.sessionUpdate({
         sessionId: requestedSessionId,
         update: {
@@ -1223,7 +1261,10 @@ const program = Effect.gen(function* () {
         sessionId: requestedSessionId,
         update: {
           sessionUpdate: "agent_message_chunk",
-          content: { type: "text", text: promptResponseText ?? "hello from mock" },
+          content: {
+            type: "text",
+            text: echoCurrentModel ? currentModelId : (promptResponseText ?? "hello from mock"),
+          },
         },
       });
 

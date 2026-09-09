@@ -125,7 +125,7 @@ export const OmpDriver: ProviderDriver<OmpSettings, OmpDriverEnv> = {
       );
       const snapshotSettings = makeProviderSnapshotSettingsSource(effectiveConfig, serverSettings);
       const snapshot = yield* makeManagedServerProvider<ProviderSnapshotSettings<OmpSettings>>({
-        resolveMaintenance: () => resolveProviderMaintenanceCapabilitiesEffect(UPDATE, { binaryPath: effectiveConfig.binaryPath, env: processEnv }),
+        resolveMaintenance: () => Effect.succeed(maintenanceCapabilities),
         getSettings: snapshotSettings.getSettings,
         streamSettings: snapshotSettings.streamSettings,
         haveSettingsChanged: haveProviderSnapshotSettingsChanged,

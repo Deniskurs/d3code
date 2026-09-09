@@ -17,7 +17,7 @@ import {
   type Icon,
   OpenAI,
   OpenCodeIcon,
-  OhMyPiIcon,
+  OmpIcon,
 } from "../Icons";
 
 type ProviderSettingsSchema = {
@@ -46,7 +46,12 @@ export interface ProviderClientDefinition {
 }
 
 const PROVIDER_CLIENT_DEFINITIONS: readonly ProviderClientDefinition[] = [
-  { value: ProviderDriverKind.make("omp"), label: "Oh My Pi", icon: OhMyPiIcon, settingsSchema: OmpSettings },
+  {
+    value: ProviderDriverKind.make("omp"),
+    label: "Oh My Pi",
+    icon: OmpIcon,
+    settingsSchema: OmpSettings,
+  },
   {
     value: ProviderDriverKind.make("codex"),
     label: "Codex",
