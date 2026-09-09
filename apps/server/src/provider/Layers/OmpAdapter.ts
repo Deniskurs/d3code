@@ -1,3 +1,4 @@
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import {
   ApprovalRequestId,
   type OmpSettings,
@@ -31,6 +32,7 @@ import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawne
 import * as EffectAcpErrors from "effect-acp/errors";
 import type * as EffectAcpSchema from "effect-acp/schema";
 
+import { createOmpSteering, type OmpSteeringContent } from "../ompSteering.ts";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
@@ -74,7 +76,8 @@ function mapOmpAcpToAdapterError(method: string, cause: unknown): ProviderAdapte
   return new ProviderAdapterRequestError({
     provider: PROVIDER,
     method,
-    detail: "Oh My Pi ACP request failed.",
+    detail:
+      "Oh My Pi request failed. If your login has expired, open Settings > Providers > Oh My Pi > Set up accounts, sign in again, then retry.",
     cause,
   });
 }
@@ -110,6 +113,7 @@ interface OmpSessionContext {
   session: ProviderSession;
   readonly scope: Scope.Closeable;
   readonly acp: AcpSessionRuntime.AcpSessionRuntime["Service"];
+  readonly steering: Awaited<ReturnType<typeof createOmpSteering>>;
   defaultModel: string | undefined;
   notificationFiber: Fiber.Fiber<void, never> | undefined;
   exitFiber: Fiber.Fiber<void, never> | undefined;
@@ -472,9 +476,18 @@ export function makeOmpAdapter(ompSettings: OmpSettings, options?: OmpAdapterLiv
               ? yield* options.resolveSettings
               : ompSettings;
 
+            const hostPlatform = yield* HostProcessPlatform;
+            const steering = yield* Effect.acquireRelease(
+              Effect.tryPromise({
+                try: () => createOmpSteering(hostPlatform),
+                catch: (cause) => mapOmpAcpToAdapterError("steering/setup", cause),
+              }),
+              (bridge) => Effect.promise(bridge.close).pipe(Effect.ignore),
+            ).pipe(Effect.provideService(Scope.Scope, sessionScope));
             const mcpSession = McpProviderSession.readMcpProviderSession(input.threadId);
             const acp = yield* makeOmpAcpRuntime({
               ompSettings: effectiveOmpSettings,
+              steeringExtensionPath: steering.extensionPath,
               ...(options?.environment ? { environment: options.environment } : {}),
               childProcessSpawner,
               cwd,
@@ -670,6 +683,7 @@ export function makeOmpAdapter(ompSettings: OmpSettings, options?: OmpAdapterLiv
               session,
               scope: sessionScope,
               acp,
+              steering,
               defaultModel,
               notificationFiber: undefined,
               exitFiber: undefined,
@@ -881,7 +895,7 @@ export function makeOmpAdapter(ompSettings: OmpSettings, options?: OmpAdapterLiv
 
     const sendTurn: OmpAdapterShape["sendTurn"] = (input) => {
       let turnContext: OmpSessionContext | undefined;
-      return withThreadLock(
+      const queuedTurn = withThreadLock(
         input.threadId,
         Effect.gen(function* () {
           const ctx = yield* requireSession(input.threadId);
@@ -1022,10 +1036,15 @@ export function makeOmpAdapter(ompSettings: OmpSettings, options?: OmpAdapterLiv
           }
 
           ctx.promptInFlight = true;
-          const promptExit = yield* ctx.acp.prompt({ prompt: promptParts }).pipe(
-            Effect.mapError((error) => mapOmpAcpToAdapterError("session/prompt", error)),
-            Effect.exit,
-          );
+          const promptExit = yield* Effect.gen(function* () {
+            yield* Effect.tryPromise({
+              try: (signal) => ctx.steering.beginTurn(turnId, signal),
+              catch: (cause) => mapOmpAcpToAdapterError("steering/begin", cause),
+            });
+            return yield* ctx.acp
+              .prompt({ prompt: promptParts })
+              .pipe(Effect.mapError((error) => mapOmpAcpToAdapterError("session/prompt", error)));
+          }).pipe(Effect.exit);
           ctx.promptInFlight = false;
           yield* ctx.acp.clearPendingCancel;
           if (Exit.isFailure(promptExit)) {
@@ -1046,7 +1065,8 @@ export function makeOmpAdapter(ompSettings: OmpSettings, options?: OmpAdapterLiv
                 turnId,
                 payload: {
                   state: "failed",
-                  errorMessage: "Oh My Pi ACP prompt failed.",
+                  errorMessage:
+                    "Oh My Pi request failed. Open Settings > Providers > Oh My Pi > Set up accounts to check your login and default model, then retry.",
                 },
               });
             }
@@ -1104,6 +1124,49 @@ export function makeOmpAdapter(ompSettings: OmpSettings, options?: OmpAdapterLiv
           }),
         ),
       );
+      return Effect.gen(function* () {
+        const ctx = yield* requireSession(input.threadId);
+        const turnId = ctx.activeTurnId;
+        if (input.deliveryMode !== "queue" && ctx.promptInFlight && turnId && !ctx.stopRequested) {
+          const content: OmpSteeringContent[] = [];
+          if (input.input?.trim()) content.push({ type: "text", text: input.input.trim() });
+          for (const attachment of input.attachments ?? []) {
+            const attachmentPath = resolveAttachmentPath({
+              attachmentsDir: serverConfig.attachmentsDir,
+              attachment,
+            });
+            if (!attachmentPath)
+              return yield* new ProviderAdapterValidationError({
+                provider: PROVIDER,
+                operation: "sendTurn",
+                issue: "Invalid steering attachment.",
+              });
+            const bytes = yield* fileSystem
+              .readFile(attachmentPath)
+              .pipe(
+                Effect.mapError((cause) => mapOmpAcpToAdapterError("steering/attachment", cause)),
+              );
+            content.push({
+              type: "image",
+              data: Buffer.from(bytes).toString("base64"),
+              mimeType: attachment.mimeType,
+            });
+          }
+          if (content.length === 0)
+            return yield* new ProviderAdapterValidationError({
+              provider: PROVIDER,
+              operation: "sendTurn",
+              issue: "Turn requires non-empty text or attachments.",
+            });
+          const accepted = yield* Effect.tryPromise({
+            try: (signal) => ctx.steering.send(content, turnId, signal),
+            catch: (cause) => mapOmpAcpToAdapterError("steering/send", cause),
+          });
+          if (accepted)
+            return { threadId: input.threadId, turnId, resumeCursor: ctx.session.resumeCursor };
+        }
+        return yield* queuedTurn;
+      });
     };
 
     const interruptTurn: OmpAdapterShape["interruptTurn"] = (threadId, turnId) =>

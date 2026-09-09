@@ -480,7 +480,7 @@ export const checkOmpProviderStatus = Effect.fn("checkOmpProviderStatus")(functi
     settings.customModels,
     EMPTY_CAPABILITIES,
   );
-  if (models.length === 0) {
+  if (discoveredModels.length === 0 && settings.customModels.length === 0) {
     return buildServerProvider({
       presentation: OMP_PRESENTATION,
       enabled: true,
@@ -490,8 +490,9 @@ export const checkOmpProviderStatus = Effect.fn("checkOmpProviderStatus")(functi
         installed: true,
         version,
         status: "error",
-        auth: { status: "unknown" },
-        message: "Oh My Pi returned no models. Run `omp setup` and select a model.",
+        auth: { status: "unauthenticated" },
+        message:
+          "Oh My Pi returned no models. Open Set up accounts to sign in or add an API key, then select a default model and recheck.",
       },
     });
   }

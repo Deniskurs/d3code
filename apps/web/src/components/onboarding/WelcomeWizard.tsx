@@ -72,7 +72,7 @@ import { Tooltip, TooltipTrigger, TooltipPopup } from "../ui/tooltip";
 import { ScrollArea } from "../ui/scroll-area";
 import { Spinner } from "../ui/spinner";
 import { WizardPanel, WizardSteps, WizardPopup, WizardHeader } from "../ui/wizard";
-import { Dialog } from "../ui/dialog";
+import { Dialog, DialogPopup, DialogTitle } from "../ui/dialog";
 import { toastManager } from "../ui/toast";
 import { cn } from "../../lib/utils";
 import { formatRelativeTime } from "../../timestampFormat";
@@ -794,6 +794,13 @@ function AgentCard({
         <p className="mt-0.5 text-xs leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">
           {summary.headline}
           {summary.detail ? ` · ${summary.detail}` : ""}
+          {driver === "omp" && provider?.installed ? (
+            <span className="mt-1 block">
+              Open setup to connect your subscription or API key and choose a default model. If an
+              existing login has expired, sign in again here, then close the setup panel to check
+              again.
+            </span>
+          ) : null}
         </p>
       </div>
       <div className="shrink-0">
@@ -837,7 +844,7 @@ function AgentCard({
 }
 
 /**
- * Inline install terminal. Opens a PTY on the connected environment under a
+ * Full-size setup terminal. Opens a PTY on the connected environment under a
  * synthetic onboarding thread id (terminals are keyed by free-form thread id;
  * the server validates only the cwd) and pre-types the install or login
  * command without submitting, so the user reviews and presses Enter.
@@ -937,74 +944,105 @@ function AgentInstallTerminal({
   ]);
 
   return (
-    <div className="thread-terminal-drawer mt-4 overflow-hidden rounded-lg border border-border/70 bg-background text-foreground">
-      <div className="flex items-center justify-between border-b border-border/60 bg-background/60 px-3 py-1.5">
-        <span className="text-[11px] font-medium text-muted-foreground">
-          {setupState === "writeFailed" ? (
-            <>
-              Run <code className="rounded bg-muted px-1 font-mono">{command}</code> in this
-              terminal.
-            </>
-          ) : setupState === "ready" ? (
-            driver === "omp" ? (
-              "Run setup here, then follow the prompts. Close this panel when finished to check OMP again."
+    <Dialog
+      open
+      onOpenChange={(open, details) => {
+        if (!open && details.reason === "escape-key") {
+          details.cancel();
+          return;
+        }
+        if (!open) onClose();
+      }}
+    >
+      <DialogPopup
+        showCloseButton={false}
+        bottomStickOnMobile={false}
+        className="thread-terminal-drawer flex h-[min(90dvh,900px)] w-[calc(100vw-2rem)] max-w-6xl flex-col overflow-hidden bg-background p-0 text-foreground"
+      >
+        <DialogTitle className="shrink-0 px-4 pt-4 text-base">
+          Set up {getDriverOption(ProviderDriverKind.make(driver))?.label ?? driver}
+        </DialogTitle>
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border/60 bg-background/60 px-4 py-3">
+          <span className="text-[11px] font-medium text-muted-foreground">
+            {setupState === "writeFailed" ? (
+              <>
+                Run <code className="rounded bg-muted px-1 font-mono">{command}</code> in this
+                terminal.
+              </>
+            ) : setupState === "ready" ? (
+              driver === "omp" ? (
+                "Run setup here, then follow the prompts. Close this panel when finished to check OMP again."
+              ) : (
+                "Review the command, then press Enter to run it."
+              )
+            ) : setupState === "openFailed" ? (
+              "Could not open the setup terminal."
             ) : (
-              "Review the command, then press Enter to run it."
-            )
-          ) : setupState === "openFailed" ? (
-            "Could not open the setup terminal."
-          ) : (
-            "Preparing command..."
-          )}
-        </span>
-        <div className="flex items-center gap-1">
-          {driver === "omp" && setupState === "ready" ? (
-            <Button
-              size="xs"
-              variant="outline"
-              disabled={setupStarted}
-              onClick={() => {
-                setSetupStarted(true);
-                void writeTerminal({
-                  environmentId,
-                  input: { threadId: AGENT_ONBOARDING_THREAD_ID, terminalId, data: "\r" },
-                });
-              }}
-            >
-              Run setup
+              "Preparing command..."
+            )}
+          </span>
+          <div className="flex items-center gap-1">
+            {driver === "omp" && setupState === "ready" ? (
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={setupStarted}
+                onClick={() => {
+                  setSetupStarted(true);
+                  void writeTerminal({
+                    environmentId,
+                    input: { threadId: AGENT_ONBOARDING_THREAD_ID, terminalId, data: "\r" },
+                  }).then((result) => {
+                    if (result._tag !== "Success") {
+                      setSetupStarted(false);
+                      toastManager.add({
+                        type: "error",
+                        title: "Could not start setup",
+                        description: "Check your connection and try again.",
+                      });
+                    }
+                  });
+                }}
+              >
+                Run setup
+              </Button>
+            ) : null}
+            {setupState === "openFailed" ? (
+              <Button
+                size="xs"
+                variant="ghost"
+                onClick={() => setSetupAttempt((value) => value + 1)}
+              >
+                Retry
+              </Button>
+            ) : null}
+            <Button size="xs" variant="ghost-muted" onClick={onClose}>
+              {driver === "omp" ? "Close and check" : "Close"}
             </Button>
-          ) : null}
-          {setupState === "openFailed" ? (
-            <Button size="xs" variant="ghost" onClick={() => setSetupAttempt((value) => value + 1)}>
-              Retry
-            </Button>
-          ) : null}
-          <Button size="xs" variant="ghost-muted" onClick={onClose}>
-            Close
-          </Button>
+          </div>
         </div>
-      </div>
-      <div className="h-64">
-        {terminalReady ? (
-          <TerminalViewport
-            threadRef={threadRef}
-            threadId={AGENT_ONBOARDING_THREAD_ID}
-            terminalId={terminalId}
-            terminalLabel={`Install ${driver}`}
-            cwd={cwd}
-            providerInstanceId={providerInstanceId}
-            advancedTypography={advancedTypography}
-            onSessionExited={onClose}
-            focusRequestId={1}
-            autoFocus
-            visible
-            resizeEpoch={0}
-            drawerHeight={256}
-            keybindings={keybindings}
-          />
-        ) : null}
-      </div>
-    </div>
+        <div className="min-h-0 flex-1 p-2">
+          {terminalReady ? (
+            <TerminalViewport
+              threadRef={threadRef}
+              threadId={AGENT_ONBOARDING_THREAD_ID}
+              terminalId={terminalId}
+              terminalLabel={`Install ${driver}`}
+              cwd={cwd}
+              providerInstanceId={providerInstanceId}
+              advancedTypography={advancedTypography}
+              onSessionExited={onClose}
+              focusRequestId={1}
+              autoFocus
+              visible
+              resizeEpoch={0}
+              drawerHeight={800}
+              keybindings={keybindings}
+            />
+          ) : null}
+        </div>
+      </DialogPopup>
+    </Dialog>
   );
 }
 

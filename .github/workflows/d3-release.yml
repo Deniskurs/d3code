@@ -51,7 +51,7 @@ jobs:
           JS
       - name: Focused release checks
         run: |
-          vp test run apps/web/src/onboarding/providerReadiness.logic.test.ts apps/server/src/provider/ompEnvironment.test.ts apps/server/src/provider/Layers/OmpProvider.test.ts apps/server/src/provider/Layers/OmpAdapter.test.ts apps/desktop/src/updates/DesktopUpdates.d3.test.ts scripts/build-desktop-artifact.d3.test.ts
+          vp test run apps/server/src/provider/ompSteering.test.ts apps/server/src/provider/acp/OmpAcpSupport.test.ts apps/server/src/orchestration/Layers/ProviderCommandReactor.test.ts apps/web/src/onboarding/providerReadiness.logic.test.ts apps/server/src/provider/ompEnvironment.test.ts apps/server/src/provider/Layers/OmpProvider.test.ts apps/server/src/provider/Layers/OmpAdapter.test.ts apps/desktop/src/updates/DesktopUpdates.d3.test.ts scripts/build-desktop-artifact.d3.test.ts
           vp run --filter t3 --filter @t3tools/web --filter @t3tools/desktop --filter @t3tools/scripts typecheck
           vp run icons:check
       - name: Build Mac installer

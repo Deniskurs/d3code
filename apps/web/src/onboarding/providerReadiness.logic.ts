@@ -1,3 +1,4 @@
+import { ompProfileFromLaunchArgs } from "@t3tools/shared/ompProfile";
 import {
   ClaudeSettings,
   CodexSettings,
@@ -141,13 +142,32 @@ export function resolveOnboardingProviderLoginCommand(
   if (provider.driver === "omp") {
     const config = decodeOmpSettings(instance ? (instance.config ?? {}) : settings.providers.omp);
     const binaryPath = Option.isSome(config) ? config.value.binaryPath : "omp";
+    const profile = Option.isSome(config)
+      ? ompProfileFromLaunchArgs(config.value.launchArgs)
+      : undefined;
+    const profileArg = profile
+      ? ` --profile '${platform === "windows" ? profile.replaceAll("'", "''") : profile.replaceAll("'", `'"'"'`)}'`
+      : "";
     if (!binaryPath.trim() || binaryPath === "omp") {
-      return platform === "windows"
-        ? '$env:Path += ";$env:LOCALAPPDATA\\omp;$env:USERPROFILE\\.bun\\bin;$env:PI_INSTALL_DIR"; omp setup'
-        : 'export PATH="$PATH:$HOME/.local/bin:$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin${PI_INSTALL_DIR:+:$PI_INSTALL_DIR}"; omp setup';
+      return (
+        (platform === "windows"
+          ? '$env:Path += ";$env:LOCALAPPDATA\\omp;$env:USERPROFILE\\.bun\\bin;$env:PI_INSTALL_DIR"; omp setup'
+          : 'export PATH="$PATH:$HOME/.local/bin:$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin${PI_INSTALL_DIR:+:$PI_INSTALL_DIR}"; omp setup') +
+        profileArg
+      );
     }
-    return `${quoteProviderBinary(binaryPath, "omp", platform)} setup`;
+    return `${quoteProviderBinary(binaryPath, "omp", platform)} setup${profileArg}`;
   }
 
   return provider.driver;
+}
+
+/** ACP reports some credential failures as assistant text rather than request errors. */
+export function hasOmpAuthenticationError(text: string | null | undefined): boolean {
+  return (
+    typeof text === "string" &&
+    /invalid_grant|(?:refresh|access) token.{0,60}(?:expired|revoked|invalid)|(?:authentication|authorization) (?:failed|required)|no api key (?:found|configured|available)|not authenticated/i.test(
+      text,
+    )
+  );
 }

@@ -1,3 +1,5 @@
+import { ompProfileFromLaunchArgs, hasBalancedCliQuotes } from "@t3tools/shared/ompProfile";
+export { ompProfileFromLaunchArgs } from "@t3tools/shared/ompProfile";
 import {
   type OmpSettings,
   type ProviderApprovalDecision,
@@ -41,6 +43,7 @@ export interface OmpAcpRuntimeInput extends Omit<
   readonly ompSettings: Pick<OmpSettings, "binaryPath" | "launchArgs"> | null | undefined;
   readonly environment?: NodeJS.ProcessEnv;
   readonly runtimeMode?: RuntimeMode;
+  readonly steeringExtensionPath?: string;
 }
 
 export interface OmpAcpModelSelectionErrorContext {
@@ -434,56 +437,6 @@ const OMP_TEXT_GENERATION_ACP_ARGS = [
   "always-ask",
 ] as const;
 
-function hasBalancedCliQuotes(launchArgs: string | undefined): boolean {
-  if (!launchArgs) return true;
-
-  let quote: "'" | '"' | undefined;
-  for (let index = 0; index < launchArgs.length; index++) {
-    const char = launchArgs[index];
-    if (char === undefined) continue;
-
-    if (quote) {
-      if (char === quote) {
-        quote = undefined;
-      } else if (char === "\\" && quote === '"') {
-        index++;
-      }
-      continue;
-    }
-
-    if (char === "'" || char === '"') quote = char;
-  }
-
-  return quote === undefined;
-}
-
-export function ompProfileFromLaunchArgs(launchArgs: string | undefined): string | undefined {
-  if (!hasBalancedCliQuotes(launchArgs)) return undefined;
-
-  let profile: string | undefined;
-  const args = tokenizeCliArgs(launchArgs);
-  for (let index = 0; index < args.length; index++) {
-    const arg = args[index];
-    if (arg === "--profile") {
-      const value = args[index + 1];
-      if (!value || value.startsWith("-")) return undefined;
-      if (profile !== undefined) return undefined;
-      profile = value;
-      index++;
-      continue;
-    }
-
-    if (arg?.startsWith("--profile=")) {
-      const value = arg.slice("--profile=".length);
-      if (!value || value.startsWith("-")) return undefined;
-      if (profile !== undefined) return undefined;
-      profile = value;
-    }
-  }
-
-  return profile;
-}
-
 function textGenerationSettingsArgs(launchArgs: string | undefined): ReadonlyArray<string> {
   if (!hasBalancedCliQuotes(launchArgs)) return [];
   const safeArgs: string[] = [];
@@ -564,7 +517,17 @@ export const makeOmpAcpRuntime = (
 > =>
   makeOmpAcpRuntimeWithSpawn(
     input,
-    buildOmpAcpSpawnInput(input.ompSettings, input.cwd, input.environment, input.runtimeMode),
+    (() => {
+      const spawn = buildOmpAcpSpawnInput(
+        input.ompSettings,
+        input.cwd,
+        input.environment,
+        input.runtimeMode,
+      );
+      return input.steeringExtensionPath
+        ? { ...spawn, args: [...spawn.args, "--extension", input.steeringExtensionPath] }
+        : spawn;
+    })(),
   );
 
 export const makeOmpTextGenerationAcpRuntime = (

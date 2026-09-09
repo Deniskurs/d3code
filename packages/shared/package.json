@@ -155,6 +155,10 @@
       "types": "./src/qrCode.ts",
       "import": "./src/qrCode.ts"
     },
+    "./ompProfile": {
+      "types": "./src/ompProfile.ts",
+      "import": "./src/ompProfile.ts"
+    },
     "./cliArgs": {
       "types": "./src/cliArgs.ts",
       "import": "./src/cliArgs.ts"

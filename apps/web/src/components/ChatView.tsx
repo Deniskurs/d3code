@@ -1,3 +1,4 @@
+import { hasOmpAuthenticationError } from "../onboarding/providerReadiness.logic";
 import { useLoadBalancedEnvironment } from "../hooks/useLoadBalancedEnvironment";
 import type { UsageLimitSourceSnapshots } from "@t3tools/contracts";
 import {
@@ -1569,6 +1570,7 @@ export default function ChatView(props: ChatViewProps) {
   const composerFilesRef = useRef<ComposerFileAttachment[]>([]);
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
   const composerElementContextsRef = useRef<ElementContextDraft[]>([]);
+  const [ompDeliveryMode, setOmpDeliveryMode] = useState<"steer" | "queue">("steer");
   const localComposerRef = useRef<ChatComposerHandle | null>(null);
   const composerRef = useComposerHandleContext() ?? localComposerRef;
   const [restingComposerControlsHost, setRestingComposerControlsHost] =
@@ -5887,7 +5889,35 @@ export default function ChatView(props: ChatViewProps) {
       }),
     [feedbackSubmissions, routeThreadKey],
   );
+  const latestOmpMessage = timelineMessages.at(-1);
+  const ompNeedsAuth =
+    selectedProvider === "omp" &&
+    (activeProviderStatus?.auth.status === "unauthenticated" ||
+      hasOmpAuthenticationError(threadError) ||
+      (latestOmpMessage?.role === "assistant" && hasOmpAuthenticationError(latestOmpMessage.text)));
   const composerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
+    const ompAuthItems: ComposerBannerStackItem[] =
+      ompNeedsAuth && activeProviderInstanceId
+        ? [
+            {
+              id: `omp-auth:${activeProviderInstanceId}`,
+              variant: "warning",
+              icon: null,
+              title: "OMP needs account setup",
+              description:
+                "Sign in again or add an API key, choose a default model, then retry your message.",
+              actions: (
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  onClick={() => openProviderSetup(activeProviderInstanceId)}
+                >
+                  Set up accounts
+                </Button>
+              ),
+            },
+          ]
+        : [];
     const backgroundLivenessItems =
       backgroundLivenessBannerItem === null ? [] : [backgroundLivenessBannerItem];
     const resumeCompactionItems =
@@ -5898,6 +5928,7 @@ export default function ChatView(props: ChatViewProps) {
     const usageLimitsItems = usageLimitsBanner === null ? [] : [usageLimitsBanner];
     if (!localCheckoutBranchMismatch || !showBranchMismatchBanner || !activeBranchMismatchKey) {
       return [
+        ...ompAuthItems,
         ...feedbackBannerItems,
         ...usageLimitsItems,
         ...systemComposerBannerItems,
@@ -5908,6 +5939,7 @@ export default function ChatView(props: ChatViewProps) {
       ];
     }
     return [
+      ...ompAuthItems,
       ...feedbackBannerItems,
       ...usageLimitsItems,
       ...systemComposerBannerItems,
@@ -5956,6 +5988,9 @@ export default function ChatView(props: ChatViewProps) {
     ];
   }, [
     activeBranchMismatchKey,
+    activeProviderInstanceId,
+    ompNeedsAuth,
+    openProviderSetup,
     backgroundLivenessBannerItem,
     feedbackBannerItems,
     handleRestoreThreadBranch,
@@ -7018,6 +7053,7 @@ export default function ChatView(props: ChatViewProps) {
             attachments: turnAttachmentsResult.value,
           },
           modelSelection: ctxSelectedModelSelection,
+          ...(ctxSelectedProvider === "omp" ? { deliveryMode: ompDeliveryMode } : {}),
           titleSeed: title,
           runtimeMode,
           interactionMode: sendInteractionMode,
@@ -8338,6 +8374,29 @@ export default function ChatView(props: ChatViewProps) {
                     <ComposerSurface.Shell contextStrip={showComposerContextStrip}>
                       <ComposerSurface.Host>
                         <div ref={attachDraftHeroComposerAnchorRef} className="relative z-10">
+                          {selectedProvider === "omp" && isWorking ? (
+                            <div className="flex flex-wrap items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
+                              <label htmlFor="omp-delivery-mode">Send next message</label>
+                              <select
+                                id="omp-delivery-mode"
+                                className="rounded border border-border bg-background px-2 py-1 text-foreground"
+                                value={ompDeliveryMode}
+                                onChange={(event) =>
+                                  setOmpDeliveryMode(
+                                    event.target.value === "queue" ? "queue" : "steer",
+                                  )
+                                }
+                              >
+                                <option value="steer">Steer current task</option>
+                                <option value="queue">Queue after current task</option>
+                              </select>
+                              <span>
+                                {ompDeliveryMode === "steer"
+                                  ? "Redirect OMP while it works."
+                                  : "Run when OMP finishes this task."}
+                              </span>
+                            </div>
+                          ) : null}
                           <ChatComposer
                             composerRef={composerRef}
                             composerDraftTarget={composerDraftTarget}

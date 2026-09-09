@@ -1,0 +1,73 @@
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as Effect from "effect/Effect";
+// @effect-diagnostics nodeBuiltinImport:off
+import type * as NodeHttp from "node:http";
+import * as NodeURL from "node:url";
+import { describe, expect, it } from "@effect/vitest";
+import { createOmpSteering, type OmpSteeringContent } from "./ompSteering.ts";
+
+describe("OMP steering extension", () => {
+  it.effect("delivers text and images to the busy native session and rejects idle delivery", () =>
+    Effect.gen(function* () {
+      const platform = yield* HostProcessPlatform;
+      yield* Effect.promise(async () => {
+        const bridge = await createOmpSteering(platform);
+        const handlers = new Map<string, (event?: unknown, ctx?: unknown) => void>();
+        const delivered: { content: OmpSteeringContent[]; options: unknown }[] = [];
+        let idle = true;
+        const module = await import(
+          /* @vite-ignore */ NodeURL.pathToFileURL(bridge.extensionPath).href
+        );
+        const server: NodeHttp.Server = module.default({
+          on: (name: string, handler: (event?: unknown, ctx?: unknown) => void) =>
+            handlers.set(name, handler),
+          sendUserMessage: (content: OmpSteeringContent[], options: unknown) =>
+            delivered.push({ content, options }),
+        });
+        try {
+          if (!server.listening)
+            await new Promise<void>((resolve, reject) => {
+              server.once("listening", resolve);
+              server.once("error", reject);
+            });
+          const content: OmpSteeringContent[] = [
+            { type: "text", text: "Use this design instead" },
+            { type: "image", data: "aW1hZ2U=", mimeType: "image/png" },
+          ];
+          expect(await bridge.send(content, "turn-1")).toBe(false);
+          handlers.get("session_start")?.({}, { isIdle: () => idle });
+          expect(await bridge.send(content, "turn-1")).toBe(false);
+          expect(delivered).toEqual([]);
+          expect(await bridge.beginTurn("turn-1")).toBe(true);
+          idle = false;
+          expect(await bridge.send(content, "turn-1")).toBe(true);
+          expect(delivered).toEqual([{ content, options: { deliverAs: "steer" } }]);
+          expect(await bridge.beginTurn("turn-2")).toBe(true);
+          expect(await bridge.send(content, "turn-1")).toBe(false);
+          idle = true;
+          expect(await bridge.send(content, "turn-1")).toBe(false);
+          expect(delivered).toHaveLength(1);
+        } finally {
+          const closed = new Promise<void>((resolve) => server.once("close", resolve));
+          handlers.get("session_shutdown")?.();
+          await closed;
+          await bridge.close();
+        }
+      });
+    }),
+  );
+
+  it.effect("falls back to the ACP queue when the installed runtime does not load extensions", () =>
+    Effect.gen(function* () {
+      const platform = yield* HostProcessPlatform;
+      yield* Effect.promise(async () => {
+        const bridge = await createOmpSteering(platform);
+        try {
+          expect(await bridge.send([{ type: "text", text: "next task" }], "turn-1")).toBe(false);
+        } finally {
+          await bridge.close();
+        }
+      });
+    }),
+  );
+});

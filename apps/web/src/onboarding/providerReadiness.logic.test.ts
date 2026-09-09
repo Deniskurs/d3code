@@ -8,6 +8,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   getOnboardingProviderState,
+  hasOmpAuthenticationError,
   resolveOnboardingProviderInstallCommand,
   resolveOnboardingProviderLoginCommand,
   selectOnboardingProvidersByDriver,
@@ -343,6 +344,21 @@ describe("OMP first-run setup", () => {
     driver: ProviderDriverKind.make("omp"),
     instanceId: ProviderInstanceId.make("omp"),
   };
+  it("opens setup in the configured OMP profile with safely quoted arguments", () => {
+    const settings = {
+      ...DEFAULT_SERVER_SETTINGS,
+      providers: {
+        ...DEFAULT_SERVER_SETTINGS.providers,
+        omp: { ...DEFAULT_SERVER_SETTINGS.providers.omp, launchArgs: `--profile "my work"` },
+      },
+    };
+    expect(resolveOnboardingProviderLoginCommand(omp, settings, "darwin")).toContain(
+      "omp setup --profile 'my work'",
+    );
+    expect(resolveOnboardingProviderLoginCommand(omp, settings, "windows")).toContain(
+      "omp setup --profile 'my work'",
+    );
+  });
   it("detects existing, missing, and disabled OMP installations", () => {
     expect(getOnboardingProviderState(omp)).toBe("ready");
     expect(getOnboardingProviderState({ ...omp, installed: false, status: "error" })).toBe(
@@ -369,5 +385,15 @@ describe("OMP first-run setup", () => {
     expect(resolveOnboardingProviderLoginCommand(omp, settings, "darwin")).toBe(
       "'/Applications/My Tools/omp' setup",
     );
+  });
+});
+
+describe("OMP authentication help", () => {
+  it("recognizes expired credentials without treating normal account discussion as failure", () => {
+    expect(hasOmpAuthenticationError("OAuth refresh token has expired. Sign in again.")).toBe(true);
+    expect(hasOmpAuthenticationError("invalid_grant")).toBe(true);
+    expect(hasOmpAuthenticationError("No API key configured for this model")).toBe(true);
+    expect(hasOmpAuthenticationError("I will add a login screen with token refresh.")).toBe(false);
+    expect(hasOmpAuthenticationError(null)).toBe(false);
   });
 });

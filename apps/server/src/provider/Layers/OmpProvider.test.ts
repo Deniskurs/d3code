@@ -211,6 +211,7 @@ it.layer(NodeServices.layer)("checkOmpProviderStatus", (it) => {
           decodeOmpSettings({ enabled: true, binaryPath: emptyBinaryPath }),
         );
         expect(empty.message).toContain("returned no models");
+        expect(empty.auth.status).toBe("unauthenticated");
       }),
     ),
   );

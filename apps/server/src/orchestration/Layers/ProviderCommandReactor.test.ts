@@ -802,6 +802,7 @@ describe("ProviderCommandReactor", () => {
       yield* harness.engine.dispatch({
         type: "thread.turn.start",
         commandId: CommandId.make("cmd-provider-command-unhandled"),
+        deliveryMode: "queue",
         threadId: ThreadId.make("thread-1"),
         message: {
           messageId: MessageId.make("message-provider-command-unhandled"),
@@ -824,6 +825,7 @@ describe("ProviderCommandReactor", () => {
       expect(harness.sendTurn).toHaveBeenCalledWith(
         expect.objectContaining({
           input: text,
+          deliveryMode: "queue",
           ...(attachments.length > 0 ? { attachments } : {}),
         }),
       );

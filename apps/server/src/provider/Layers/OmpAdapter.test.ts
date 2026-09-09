@@ -778,7 +778,12 @@ ompAdapterTestLayer("OmpAdapterLive", (it) => {
       );
 
       yield* adapter.sendTurn({ threadId, input: "first", attachments: [] });
-      yield* adapter.sendTurn({ threadId, input: "second", attachments: [] });
+      yield* adapter.sendTurn({
+        threadId,
+        input: "second",
+        attachments: [],
+        deliveryMode: "queue",
+      });
       const states = Array.from(yield* Fiber.join(completedTurnsFiber), (event) =>
         event.type === "turn.completed" ? event.payload.state : "unknown",
       );
@@ -1101,6 +1106,43 @@ ompAdapterTestLayer("OmpAdapterLive", (it) => {
     }),
   );
 
+  it.effect("steers an active OMP prompt without opening or cancelling a second turn", () =>
+    Effect.gen(function* () {
+      const adapter = yield* OmpAdapter;
+      const serverSettings = yield* ServerSettingsService;
+      const wrapperPath = yield* Effect.promise(() =>
+        makeMockAgentWrapper({ T3_ACP_OMP_STEERING: "1" }),
+      );
+      yield* serverSettings.updateSettings({
+        providers: { omp: { binaryPath: wrapperPath, enabled: true } },
+      });
+      const threadId = ThreadId.make("omp-native-steering");
+      yield* adapter.startSession({
+        threadId,
+        provider: ProviderDriverKind.make("omp"),
+        cwd: process.cwd(),
+        runtimeMode: "full-access",
+      });
+      const waiting = yield* adapter.streamEvents.pipe(
+        Stream.filter((event) => event.threadId === threadId && event.type === "content.delta"),
+        Stream.runHead,
+        Effect.forkChild,
+      );
+      const first = yield* adapter.sendTurn({ threadId, input: "first" }).pipe(Effect.forkChild);
+      yield* Fiber.join(waiting);
+      const steered = yield* adapter.sendTurn({
+        threadId,
+        input: "change direction",
+        deliveryMode: "steer",
+      });
+      const completed = yield* Fiber.join(first);
+      assert.equal(steered.turnId, completed.turnId);
+      const thread = yield* adapter.readThread(threadId);
+      assert.equal(thread.turns.length, 1);
+      yield* adapter.stopSession(threadId);
+    }),
+  );
+
   it.effect("queues concurrent prompts as distinct turns", () =>
     Effect.gen(function* () {
       const adapter = yield* OmpAdapter;
@@ -1122,7 +1164,7 @@ ompAdapterTestLayer("OmpAdapterLive", (it) => {
       const [first, second] = yield* Effect.all(
         [
           adapter.sendTurn({ threadId, input: "first", attachments: [] }),
-          adapter.sendTurn({ threadId, input: "second", attachments: [] }),
+          adapter.sendTurn({ threadId, input: "second", attachments: [], deliveryMode: "queue" }),
         ],
         { concurrency: 2 },
       );
@@ -1198,7 +1240,7 @@ ompAdapterTestLayer("OmpAdapterLive", (it) => {
       const failedTurn = yield* Fiber.join(failedTurnFiber);
       assert.equal(failedTurn._tag, "Some");
       if (failedTurn._tag === "Some" && failedTurn.value.type === "turn.completed") {
-        assert.equal(failedTurn.value.payload.errorMessage, "Oh My Pi ACP prompt failed.");
+        assert.match(failedTurn.value.payload.errorMessage ?? "", /Set up accounts/);
       }
       const session = (yield* adapter.listSessions()).find((entry) => entry.threadId === threadId);
       assert.equal(session?.status, "ready");

@@ -1093,6 +1093,7 @@ const ThreadTurnStartBootstrap = Schema.Struct({
 export type ThreadTurnStartBootstrap = typeof ThreadTurnStartBootstrap.Type;
 
 export const ThreadTurnStartCommand = Schema.Struct({
+  deliveryMode: Schema.optional(Schema.Literals(["steer", "queue"])),
   type: Schema.Literal("thread.turn.start"),
   commandId: CommandId,
   threadId: ThreadId,
@@ -1114,6 +1115,7 @@ export const ThreadTurnStartCommand = Schema.Struct({
 });
 
 const ClientThreadTurnStartCommand = Schema.Struct({
+  deliveryMode: Schema.optional(Schema.Literals(["steer", "queue"])),
   type: Schema.Literal("thread.turn.start"),
   commandId: CommandId,
   threadId: ThreadId,
@@ -1573,6 +1575,7 @@ export const ThreadMessageSentPayload = Schema.Struct({
 });
 
 export const ThreadTurnStartRequestedPayload = Schema.Struct({
+  deliveryMode: Schema.optional(Schema.Literals(["steer", "queue"])),
   threadId: ThreadId,
   messageId: MessageId,
   modelSelection: Schema.optional(ModelSelection),

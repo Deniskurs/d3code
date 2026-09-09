@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeFS from "node:fs";
+import * as NodeURL from "node:url";
 
 import * as Effect from "effect/Effect";
 import * as Deferred from "effect/Deferred";
@@ -370,6 +371,30 @@ function modelState(): AcpSchema.SessionModelState {
 const program = Effect.gen(function* () {
   const agent = yield* EffectAcpAgent.AcpAgent;
   const resumeRelease = yield* Deferred.make<void>();
+  const steeringReceived = yield* Deferred.make<string>();
+  const steeringTest = process.env.T3_ACP_OMP_STEERING === "1";
+  if (steeringTest) {
+    const extensionPath = process.argv[process.argv.indexOf("--extension") + 1];
+    if (!extensionPath) return yield* Effect.die("Missing OMP steering extension");
+    const extension = yield* Effect.promise(
+      () => import(NodeURL.pathToFileURL(extensionPath).href),
+    );
+    extension.default({
+      on: (event: string, handler: (event: unknown, context: unknown) => void) => {
+        if (event === "session_start") handler({}, { isIdle: () => false });
+      },
+      sendUserMessage: (
+        content: { type: string; text?: string }[],
+        options: { deliverAs: string },
+      ) => {
+        if (options.deliverAs === "steer") {
+          Effect.runSync(
+            Deferred.succeed(steeringReceived, content.map((part) => part.text ?? "").join("")),
+          );
+        }
+      },
+    });
+  }
   const nativeCancelRequested = yield* Deferred.make<void>();
   const nativeCancelRelease = yield* Deferred.make<void>();
   const publishAntigravityCommands = (targetSessionId: string) =>
@@ -630,6 +655,24 @@ const program = Effect.gen(function* () {
     Effect.gen(function* () {
       const requestedSessionId = String(request.sessionId ?? sessionId);
       promptCount += 1;
+      if (steeringTest && promptCount === 1) {
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "Waiting for steering" },
+          },
+        });
+        const text = yield* Deferred.await(steeringReceived);
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text },
+          },
+        });
+        return { stopReason: "end_turn" };
+      }
 
       if (completeFirstPromptOnCancel && promptCount === 1) {
         yield* agent.client.sessionUpdate({

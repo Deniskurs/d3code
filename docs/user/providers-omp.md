@@ -1,57 +1,34 @@
 # Oh My Pi
 
-Oh My Pi (OMP) is an agent runtime that supports multiple model providers through one CLI. T3
-Code includes OMP as a built-in provider, but it is off by default.
+D3 Code includes Oh My Pi (OMP) as an enabled provider. OMP connects your coding workspace to model subscriptions and API accounts.
 
-## Install OMP
+## Set up your account
 
-T3 Code requires OMP 18.0.5 or newer on the machine that runs the T3 Code server. Install the
-published package and verify the binary before enabling the provider:
+During first-run setup, D3 checks whether OMP is installed. Choose **Install** if it is missing. If it is already installed, choose **Set up accounts** to connect a subscription or API key and select your default model.
 
-```bash
-npm install --global @oh-my-pi/pi-coding-agent@18.0.5
-omp --version
-omp setup
-```
+The setup terminal opens in a large dialog. Choose **Run setup**, follow OMP's prompts, then **Close and check**. You can reopen it from **Settings > Providers > Oh My Pi** at any time. Named OMP profiles use their own account setup.
 
-Homebrew users can install `can1357/tap/omp`; upgrade it until `omp --version` reports 18.0.5 or
-newer.
+An available model catalog does not guarantee that an old subscription login is still valid. If OMP reports an expired login, reopen **Set up accounts**, sign in again, close the panel, and retry your message.
 
-## Enable OMP in T3 Code
+Use **Check for updates** in the provider settings to keep OMP current. D3's application updates and OMP's runtime updates are separate.
 
-Open **Settings**, add or enable an **Oh My Pi** provider, then choose a discovered model. The
-default binary path is `omp`. Add separate provider instances when different projects need isolated
-OMP profiles, credentials, or model catalogs.
+## Steer or queue a message
 
-**Launch arguments** are appended after `omp acp`. Profiles and config overlays are supported, for
-example `--profile work` or `--config ~/.omp/work.yml`. T3 Code removes approval flags from this
-field because the selected T3 permission mode is authoritative.
+You can send another message while OMP is working. In the web or desktop composer, choose:
 
-Health checks run `omp models --json --no-extensions`. They preserve profile/config overlays but do
-not load extensions, skills, or rules. Add an extension-only model's complete `provider/id` selector
-under **Custom models**. Model rows identify their upstream provider and expose the thinking options
-reported by OMP.
+- **Steer current task** to redirect the running task. OMP may interrupt its current tool batch to follow your new instruction.
+- **Queue after current task** to start a separate turn when the current task finishes.
 
-OMP sessions support new and resumed threads, streaming assistant text, tool events, token usage,
-images, permission requests, required form input, interruption, and model/thinking changes. T3 Code
-uses an isolated, tool-free OMP session for commit messages, branch names, pull request copy, and
-thread titles.
+Then send with the arrow button or Enter. Steering also supports attached images. Other clients default to steering when sending to a running OMP session. If an OMP installation cannot load D3's steering extension, messages fall back to waiting for the current turn.
 
-## Permission behavior
+## Models and profiles
 
-T3 Code maps its permission modes to OMP approval modes:
+Choose a discovered model in the composer. Add separate provider instances when projects need different OMP profiles or credentials. **Launch arguments** support settings such as `--profile work` and `--config ~/.omp/work.yml`.
 
-- **Supervised** and **Auto** use OMP's `always-ask` mode.
-- **Auto-accept edits** uses OMP's `write` mode.
-- **Full access** uses OMP's `yolo` mode.
+Add an extension-only model's full `provider/id` selector under **Custom models**. D3's model checks do not load extensions, skills, or rules.
 
-OMP 18.0.5 can show a second approval form for a supervised shell command or destructive edit. T3
-Code presents OMP's advertised choices and required form fields; optional unanswered fields are
-omitted.
+## Permissions and limitations
 
-## Current limitations
+D3's permission mode controls OMP approvals. **Supervised** and **Auto** ask for approval; **Auto-accept edits** permits writes; **Full access** permits unrestricted tools. OMP can request an additional confirmation for some operations.
 
-OMP does not expose the provider-history controls T3 Code needs for checkpoint rollback. T3 Code
-also hides its Plan toggle and built-in `/plan` command for OMP; every client and the server normalize
-stale Plan state to the implementation/default OMP mode. Follow-up messages wait for the active OMP
-turn to finish, then start a new turn.
+OMP supports new and resumed conversations, streaming, tool events, usage, images, approval forms, interruption, and model changes. Provider-history rollback and D3's Plan toggle are not available for OMP.
