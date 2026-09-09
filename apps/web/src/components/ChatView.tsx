@@ -8239,6 +8239,28 @@ export default function ChatView(props: ChatViewProps) {
           ) : null}
           {!rightPanelControlsAtRoot && !rightPanelControlsInPanel ? panelLayoutControls : null}
           <ChatHeader
+            ompInstanceId={
+              selectedProvider === "omp" ? (activeProviderInstanceId ?? undefined) : undefined
+            }
+            onRunOmpTerminal={(command) => {
+              if (activeThreadRef)
+                useTerminalUiStateStore
+                  .getState()
+                  .setTerminalHeight(
+                    activeThreadRef,
+                    Math.max(420, Math.round(window.innerHeight * 0.65)),
+                  );
+              void runProjectScript(
+                {
+                  id: "omp-native-session",
+                  name: "OMP session",
+                  command,
+                  icon: "configure",
+                  runOnWorktreeCreate: false,
+                },
+                { preferNewTerminal: true, rememberAsLastInvoked: false },
+              );
+            }}
             {...(!supportsPullRequests || activeProjectRepository === null
               ? {}
               : { onOpenPullRequest: openProjectPullRequest })}

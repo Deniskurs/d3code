@@ -27,6 +27,25 @@ settings. OMP continues to manage its own credentials and profiles.
 When connected to another computer, provider setup runs on that computer, not on
 the device displaying the interface.
 
+## Continue OMP sessions
+
+In an OMP chat, open **OMP sessions** in the header to browse conversations saved
+for that project and provider profile. Select a session to preview it and continue
+in D3. Reopening an imported session returns to the same chat. **Fork session**
+creates a separate native OMP session and D3 chat.
+
+To use OMP's terminal interface, choose **Continue in terminal**, then open the
+D3 terminal or copy the resume command to a terminal on the connected computer.
+Close OMP in that terminal when finished and choose **Refresh history** before
+sending another message in D3. This adds new messages without duplicating the
+conversation. If you change the native conversation branch, fork it to open that
+history separately.
+
+After OMP connects, its supported commands appear in the composer's `/` menu.
+Commands that require OMP's terminal interface, including `/tree` and `/login`,
+use the terminal handoff. Imported history shows conversation text; native OMP
+retains its full session context, tools, and attachments.
+
 ## Other providers
 
 Open **Settings > Providers** to enable and configure Codex, Claude Code, Cursor,

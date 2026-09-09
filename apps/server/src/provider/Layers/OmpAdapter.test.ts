@@ -392,6 +392,35 @@ faultingNativeLogOmpAdapterTestLayer("OmpAdapter notification recovery", (it) =>
 });
 
 ompAdapterTestLayer("OmpAdapterLive", (it) => {
+  it.effect("publishes native commands and keeps terminal-only commands out of prompts", () =>
+    Effect.gen(function* () {
+      const wrapperPath = yield* Effect.promise(() =>
+        makeMockAgentWrapper({ T3_ACP_COMMANDS: "1" }),
+      );
+      const commands = yield* Deferred.make<ReadonlyArray<string>>();
+      const adapter = yield* makeOmpAdapter(decodeOmpSettings({ binaryPath: wrapperPath }), {
+        onAvailableCommands: (available, cwd) => {
+          assert.equal(cwd, process.cwd());
+          return Deferred.succeed(
+            commands,
+            available.map((command) => command.name),
+          ).pipe(Effect.asVoid);
+        },
+      });
+      const threadId = ThreadId.make("omp-native-commands");
+      yield* adapter.startSession({
+        threadId,
+        provider: ProviderDriverKind.make("omp"),
+        cwd: process.cwd(),
+        runtimeMode: "full-access",
+      });
+      assert.deepEqual(yield* Deferred.await(commands), ["plan", "logout"]);
+      const failure = yield* Effect.flip(adapter.sendTurn({ threadId, input: "/tree" }));
+      assert.include(failure.message, "terminal");
+      yield* adapter.stopSession(threadId);
+    }),
+  );
+
   it.effect("starts an OMP ACP session and maps a prompt to runtime events", () =>
     Effect.gen(function* () {
       const adapter = yield* OmpAdapter;

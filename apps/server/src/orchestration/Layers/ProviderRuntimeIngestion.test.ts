@@ -399,6 +399,55 @@ describe("ProviderRuntimeIngestion", () => {
     };
   }
 
+  it("keeps native OMP model changes on the matching provider instance", async () => {
+    const harness = await createHarness();
+    const now = "2026-01-01T00:01:00.000Z";
+    const instanceId = ProviderInstanceId.make("omp");
+    await harness.dispatch({
+      type: "thread.session.set",
+      commandId: CommandId.make("omp-session"),
+      threadId: asThreadId("thread-1"),
+      session: {
+        threadId: asThreadId("thread-1"),
+        providerName: "omp",
+        providerInstanceId: instanceId,
+        status: "ready",
+        runtimeMode: "full-access",
+        activeTurnId: null,
+        updatedAt: now,
+        lastError: null,
+      },
+      createdAt: now,
+    });
+    const selection = {
+      instanceId,
+      model: "openai/gpt-5.4",
+      options: [{ id: "thinking", value: "high" }],
+    };
+    await harness.emitAndDrain([
+      {
+        type: "session.configured",
+        eventId: asEventId("omp-native-model"),
+        provider: ProviderDriverKind.make("omp"),
+        threadId: asThreadId("thread-1"),
+        createdAt: now,
+        payload: { config: { nativeModelSelection: selection } },
+      },
+    ]);
+    expect((await harness.readModel()).threads[0]?.modelSelection).toEqual(selection);
+    await harness.emitAndDrain([
+      {
+        type: "session.configured",
+        eventId: asEventId("omp-foreign-model"),
+        provider: ProviderDriverKind.make("omp"),
+        threadId: asThreadId("thread-1"),
+        createdAt: now,
+        payload: { config: { nativeModelSelection: { instanceId: "other", model: "foreign" } } },
+      },
+    ]);
+    expect((await harness.readModel()).threads[0]?.modelSelection).toEqual(selection);
+  });
+
   it("maps turn started/completed events into thread session updates", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";

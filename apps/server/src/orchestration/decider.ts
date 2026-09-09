@@ -1607,17 +1607,29 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      const reconciling = command.expectedMessageIds !== undefined;
+      const expectedIds = new Set(command.expectedMessageIds);
+      const historyChanged =
+        reconciling &&
+        (command.expectedUpdatedAt !== thread.updatedAt ||
+          expectedIds.size < thread.messages.length ||
+          !thread.messages.every((message) => expectedIds.has(message.id)));
       if (
         thread.deletedAt !== null ||
         thread.archivedAt !== null ||
-        thread.messages.length > 0 ||
-        thread.latestTurn !== null ||
-        thread.session !== null ||
+        historyChanged ||
+        (reconciling
+          ? thread.session?.status === "starting" ||
+            thread.session?.status === "running" ||
+            thread.latestTurn?.state === "running"
+          : thread.messages.length > 0 || thread.latestTurn !== null || thread.session !== null) ||
         openRequests(thread).size > 0
       ) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
-          detail: `Thread '${command.threadId}' must be active and empty before history can be imported.`,
+          detail: reconciling
+            ? `Thread '${command.threadId}' changed or is busy. Refresh its history again when idle.`
+            : `Thread '${command.threadId}' must be active and empty before history can be imported.`,
         });
       }
       const firstMessage = command.messages[0];
@@ -1625,6 +1637,16 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
           detail: "Thread history imports require at least one message.",
+        });
+      }
+      const incomingIds = new Set(command.messages.map((message) => message.messageId));
+      if (
+        incomingIds.size !== command.messages.length ||
+        thread.messages.some((message) => incomingIds.has(message.id))
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "History messages must have unique IDs and cannot replace existing messages.",
         });
       }
 

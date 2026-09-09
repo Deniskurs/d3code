@@ -5,6 +5,10 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
+import * as SubscriptionRef from "effect/SubscriptionRef";
+import * as DateTime from "effect/DateTime";
+import { nativeCommands } from "../acp/nativeCommands.ts";
 import { HttpClient } from "effect/unstable/http";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
@@ -130,7 +134,27 @@ export const OmpDriver: ProviderDriver<OmpSettings, OmpDriverEnv> = {
         ),
       );
 
+      const catalogs = yield* SubscriptionRef.make<
+        NonNullable<ServerProvider["workspaceSnapshots"]>
+      >([]);
+      const withCatalogs = (
+        base: ServerProvider,
+        entries: NonNullable<ServerProvider["workspaceSnapshots"]>,
+      ): ServerProvider => ({
+        ...base,
+        workspaceSnapshots: entries,
+      });
       const adapter = yield* makeOmpAdapter(effectiveConfig, {
+        onAvailableCommands: (commands, cwd) =>
+          Effect.gen(function* () {
+            const checkedAt = DateTime.formatIso(yield* DateTime.now);
+            yield* SubscriptionRef.update(catalogs, (entries) =>
+              [
+                ...entries.filter((entry) => entry.cwd !== cwd),
+                { cwd, checkedAt, slashCommands: nativeCommands(commands), skills: [] },
+              ].slice(-32),
+            );
+          }),
         environment: processEnv,
         ...(eventLoggers.native ? { nativeEventLogger: eventLoggers.native } : {}),
         instanceId,
@@ -180,7 +204,33 @@ export const OmpDriver: ProviderDriver<OmpSettings, OmpDriverEnv> = {
         displayName,
         accentColor,
         enabled,
-        snapshot,
+        snapshot: {
+          ...snapshot,
+          getSnapshot: Effect.all([snapshot.getSnapshot, SubscriptionRef.get(catalogs)]).pipe(
+            Effect.map(([base, entries]) => withCatalogs(base, entries)),
+          ),
+          refresh: snapshot.refresh.pipe(
+            Effect.flatMap((base) =>
+              SubscriptionRef.get(catalogs).pipe(
+                Effect.map((entries) => withCatalogs(base, entries)),
+              ),
+            ),
+          ),
+          streamChanges: snapshot.streamChanges.pipe(
+            Stream.mapEffect((base) =>
+              SubscriptionRef.get(catalogs).pipe(
+                Effect.map((entries) => withCatalogs(base, entries)),
+              ),
+            ),
+            Stream.merge(
+              SubscriptionRef.changes(catalogs).pipe(
+                Stream.mapEffect((entries) =>
+                  snapshot.getSnapshot.pipe(Effect.map((base) => withCatalogs(base, entries))),
+                ),
+              ),
+            ),
+          ),
+        },
         adapter,
         textGeneration,
       } satisfies ProviderInstance;

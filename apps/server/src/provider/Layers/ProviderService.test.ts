@@ -1546,6 +1546,26 @@ it.effect(
 );
 
 routing.layer("ProviderServiceLive routing", (it) => {
+  it.effect("blocks prompts while an OMP session is handed to the terminal", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const directory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
+      const threadId = asThreadId("omp-terminal-handoff");
+      yield* directory.upsert({
+        threadId,
+        provider: ProviderDriverKind.make("omp"),
+        providerInstanceId: ProviderInstanceId.make("omp"),
+        status: "stopped",
+        runtimeMode: "full-access",
+        resumeCursor: { schemaVersion: 1, sessionId: "native-session" },
+        runtimePayload: { ompTerminalHandoff: true },
+      });
+      const failure = yield* Effect.flip(provider.sendTurn({ threadId, input: "continue" }));
+      assert.instanceOf(failure, ProviderValidationError);
+      assert.include(failure.issue, "Refresh history");
+    }),
+  );
+
   it.effect.each([CODEX_DRIVER, CLAUDE_AGENT_DRIVER, CURSOR_DRIVER])(
     "rejects missing, file, and saved workspace paths before starting %s",
     (driver) =>

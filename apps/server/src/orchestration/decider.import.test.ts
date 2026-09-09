@@ -174,6 +174,92 @@ it.layer(NodeServices.layer)("thread history import", (it) => {
     }),
   );
 
+  it.effect("appends native history once and rejects stale or busy refreshes", () =>
+    Effect.gen(function* () {
+      const createdAt = "2026-09-09T10:00:00.000Z";
+      const threadId = ThreadId.make("import:omp:session");
+      let state = yield* projectEvent(createEmptyReadModel(createdAt), {
+        sequence: 1,
+        eventId: EventId.make("omp-thread-created"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        type: "thread.created",
+        occurredAt: createdAt,
+        commandId: CommandId.make("omp-create"),
+        causationEventId: null,
+        correlationId: null,
+        metadata: {},
+        payload: {
+          threadId,
+          projectId: ProjectId.make("project-1"),
+          title: "OMP history",
+          modelSelection: { instanceId: ProviderInstanceId.make("omp"), model: "default" },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdAt,
+          updatedAt: createdAt,
+        },
+      });
+      const firstId = MessageId.make("import:omp:session:0");
+      const initial = yield* decideOrchestrationCommand({
+        readModel: state,
+        command: {
+          type: "thread.history.import",
+          commandId: CommandId.make("omp-import"),
+          threadId,
+          messages: [{ messageId: firstId, role: "user", text: "Initial message", createdAt }],
+        },
+      });
+      for (const [index, event] of (Array.isArray(initial) ? initial : [initial]).entries())
+        state = yield* projectEvent(state, { ...event, sequence: index + 2 });
+      const command = {
+        type: "thread.history.import" as const,
+        commandId: CommandId.make("omp-refresh"),
+        threadId,
+        expectedMessageIds: [firstId],
+        expectedUpdatedAt: state.threads[0]!.updatedAt,
+        messages: [
+          {
+            messageId: MessageId.make("import:omp:session:1"),
+            role: "assistant" as const,
+            text: "Added in terminal",
+            createdAt: "2026-09-09T11:00:00.000Z",
+          },
+        ],
+      };
+      const busy = {
+        ...state,
+        threads: state.threads.map((thread) => ({
+          ...thread,
+          session: {
+            threadId,
+            status: "running" as const,
+            providerName: "omp",
+            runtimeMode: "full-access" as const,
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: createdAt,
+          },
+        })),
+      };
+      expect(
+        (yield* decideOrchestrationCommand({ readModel: busy, command }).pipe(Effect.result))._tag,
+      ).toBe("Failure");
+      const appended = yield* decideOrchestrationCommand({ readModel: state, command });
+      for (const [index, event] of (Array.isArray(appended) ? appended : [appended]).entries())
+        state = yield* projectEvent(state, { ...event, sequence: index + 4 });
+      expect(state.threads[0]?.messages.map((message) => message.text)).toEqual([
+        "Initial message",
+        "Added in terminal",
+      ]);
+      expect(
+        (yield* decideOrchestrationCommand({ readModel: state, command }).pipe(Effect.result))._tag,
+      ).toBe("Failure");
+    }),
+  );
+
   it.effect("allows a thread with a newly imported user message to be settled", () =>
     Effect.gen(function* () {
       const createdAt = "2026-08-24T10:00:00.000Z";

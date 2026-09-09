@@ -68,6 +68,7 @@ import {
   shouldAutoApproveOmpPermission,
 } from "../acp/OmpAcpSupport.ts";
 import { type OmpAdapterShape } from "../Services/OmpAdapter.ts";
+import { ompTerminalOnlyCommand } from "../ompSessionHistory.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.fromJsonString(Schema.Unknown));
 
@@ -88,6 +89,10 @@ function encodeJsonStringForDiagnostics(input: unknown): string | undefined {
 }
 
 export interface OmpAdapterLiveOptions {
+  readonly onAvailableCommands?: (
+    commands: ReadonlyArray<import("effect-acp/schema").AvailableCommand>,
+    cwd: string,
+  ) => Effect.Effect<void>;
   readonly environment?: NodeJS.ProcessEnv;
   readonly nativeEventLogPath?: string;
   readonly nativeEventLogger?: EventNdjsonLogger;
@@ -712,6 +717,11 @@ export function makeOmpAdapter(ompSettings: OmpSettings, options?: OmpAdapterLiv
               Stream.mapEffect(acp.getEvents(), (event) =>
                 Effect.gen(function* () {
                   switch (event._tag) {
+                    case "AvailableCommandsUpdated":
+                      if (options?.onAvailableCommands) {
+                        yield* options.onAvailableCommands(event.availableCommands, cwd);
+                      }
+                      return;
                     case "EventStreamBarrier":
                       yield* Deferred.succeed(event.acknowledge, undefined);
                       return;
@@ -902,6 +912,15 @@ export function makeOmpAdapter(ompSettings: OmpSettings, options?: OmpAdapterLiv
     };
 
     const sendTurn: OmpAdapterShape["sendTurn"] = (input) => {
+      const terminalCommand = ompTerminalOnlyCommand(input.input);
+      if (terminalCommand)
+        return Effect.fail(
+          new ProviderAdapterValidationError({
+            provider: PROVIDER,
+            operation: "sendTurn",
+            issue: `/${terminalCommand} opens OMP's terminal interface. Use OMP sessions > Continue in terminal. Session browsing and forks are also available in OMP sessions.`,
+          }),
+        );
       let turnContext: OmpSessionContext | undefined;
       const queuedTurn = withThreadLock(
         input.threadId,
@@ -1093,13 +1112,44 @@ export function makeOmpAdapter(ompSettings: OmpSettings, options?: OmpAdapterLiv
           }
           ctx.interruptedTurnIds.delete(turnId);
           ctx.turns.push({ id: turnId, items: [{ prompt: promptParts, result }] });
+          const finalOptions = yield* ctx.acp.getConfigOptions;
+          const finalModel = getOmpAcpCurrentModel(finalOptions) ?? model;
+          if (/^\/[a-z][\w:-]*(?:\s|$)/i.test(input.input?.trim() ?? "") && finalModel) {
+            const thinking = finalOptions.find(
+              (option) => option.category === "thought_level" || option.id === "thinking",
+            );
+            yield* offerRuntimeEvent({
+              type: "session.configured",
+              ...(yield* makeEventStamp()),
+              provider: PROVIDER,
+              threadId: input.threadId,
+              payload: {
+                config: {
+                  nativeModelSelection: {
+                    instanceId: boundInstanceId,
+                    model: finalModel,
+                    options: [
+                      ...(turnModelSelection?.options ?? []).filter(
+                        (option) => option.id !== "thinking",
+                      ),
+                      ...(thinking &&
+                      typeof thinking.currentValue === "string" &&
+                      thinking.currentValue
+                        ? [{ id: "thinking", value: thinking.currentValue }]
+                        : []),
+                    ],
+                  },
+                },
+              },
+            });
+          }
           const { activeTurnId: _activeTurnId, ...inactiveSession } = ctx.session;
           ctx.activeTurnId = undefined;
           ctx.session = {
             ...inactiveSession,
             status: "ready",
             updatedAt: yield* nowIso,
-            model,
+            model: finalModel,
           };
           ctx.turnInProgress = false;
           ctx.interruptPending = false;

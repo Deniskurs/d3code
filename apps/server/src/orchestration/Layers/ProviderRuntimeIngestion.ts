@@ -3,6 +3,7 @@ import {
   type AssistantDeliveryMode,
   CommandId,
   MessageId,
+  ModelSelection,
   type OrchestrationEvent,
   OrchestrationProposedPlanId,
   CheckpointRef,
@@ -26,6 +27,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import { formatTokens } from "@t3tools/shared/usageFormat";
@@ -52,6 +54,8 @@ import { projectActivityPayload } from "../ActivityPayloadProjection.ts";
 import { forkParked } from "../../serverActivation.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { canReplaceThreadTitle } from "../threadTitles.ts";
+
+const isModelSelection = Schema.is(ModelSelection);
 
 const providerTurnKey = (threadId: ThreadId, turnId: TurnId) => `${threadId}:${turnId}`;
 const providerTaskKey = (threadId: ThreadId, taskId: string) => `${threadId}:${taskId}`;
@@ -1950,6 +1954,21 @@ const make = Effect.gen(function* () {
             commandId: yield* providerCommandId(event, "thread-meta-update"),
             threadId: thread.id,
             title: event.payload.name,
+          });
+        }
+      }
+
+      if (event.type === "session.configured" && event.provider === "omp") {
+        const selection = event.payload.config.nativeModelSelection;
+        if (
+          isModelSelection(selection) &&
+          selection.instanceId === thread.session?.providerInstanceId
+        ) {
+          yield* orchestrationEngine.dispatch({
+            type: "thread.meta.update",
+            commandId: yield* providerCommandId(event, "omp-native-model-selection"),
+            threadId: thread.id,
+            modelSelection: selection,
           });
         }
       }

@@ -1283,6 +1283,9 @@ const ThreadHistoryImportCommand = Schema.Struct({
   type: Schema.Literal("thread.history.import"),
   commandId: CommandId,
   threadId: ThreadId,
+  /** A compare-and-append guard for an explicit native history refresh. */
+  expectedMessageIds: Schema.optional(Schema.Array(MessageId)),
+  expectedUpdatedAt: Schema.optional(IsoDateTime),
   messages: Schema.Array(
     Schema.Struct({
       messageId: MessageId,

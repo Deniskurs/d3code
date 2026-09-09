@@ -128,6 +128,7 @@ import * as ReviewService from "./review/ReviewService.ts";
 import * as ProjectSetupScriptRunner from "./project/ProjectSetupScriptRunner.ts";
 import * as AgentSessionScanner from "./project/AgentSessionScanner.ts";
 import { importRecentAgentThreads } from "./project/AgentSessionImporter.ts";
+import { makeOmpSessions } from "./provider/OmpSessions.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
 import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
@@ -572,6 +573,7 @@ const makeWsRpcLayer = (
       });
       const projectSetupScriptRunner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
       const agentSessionScanner = yield* AgentSessionScanner.AgentSessionScanner;
+      const ompSessions = yield* makeOmpSessions;
       const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
       const backgroundPolicy = yield* BackgroundPolicy.BackgroundPolicy;
       const rpcClientIds = yield* Ref.make(new Set<RpcClientId>());
@@ -2364,6 +2366,14 @@ const makeWsRpcLayer = (
           ),
         [WS_METHODS.agentSessionsScan]: () =>
           observeRpcEffect(WS_METHODS.agentSessionsScan, agentSessionScanner.scan, {
+            "rpc.aggregate": "workspace",
+          }),
+        [WS_METHODS.ompSessionsRead]: (input) =>
+          observeRpcEffect(WS_METHODS.ompSessionsRead, ompSessions.read(input), {
+            "rpc.aggregate": "workspace",
+          }),
+        [WS_METHODS.ompSessionsAction]: (input) =>
+          observeRpcEffect(WS_METHODS.ompSessionsAction, ompSessions.action(input), {
             "rpc.aggregate": "workspace",
           }),
         [WS_METHODS.agentSessionsImport]: (input) =>

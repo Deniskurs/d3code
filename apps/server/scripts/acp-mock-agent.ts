@@ -463,7 +463,7 @@ const program = Effect.gen(function* () {
 
   yield* agent.handleCreateSession(() =>
     Effect.gen(function* () {
-      if (antigravityProfile) {
+      if (antigravityProfile || process.env.T3_ACP_COMMANDS === "1") {
         yield* publishAntigravityCommands(sessionId);
       }
       return {
@@ -487,7 +487,7 @@ const program = Effect.gen(function* () {
       if (waitForResumeRelease) {
         yield* Deferred.await(resumeRelease);
       }
-      if (antigravityProfile) {
+      if (antigravityProfile || process.env.T3_ACP_COMMANDS === "1") {
         yield* publishAntigravityCommands(request.sessionId);
       }
       return {

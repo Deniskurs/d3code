@@ -38,6 +38,13 @@ import {
   AgentSessionScanError,
 } from "./agentSessions.ts";
 import {
+  OmpSessionsReadInput,
+  OmpSessionsReadResult,
+  OmpSessionsActionInput,
+  OmpSessionsActionResult,
+  OmpSessionsError,
+} from "./ompSessions.ts";
+import {
   AssetAccessError,
   AssetCreateUrlInput,
   AssetCreateUrlResult,
@@ -252,6 +259,8 @@ export const WS_METHODS = {
   // Filesystem methods
   filesystemBrowse: "filesystem.browse",
   agentSessionsScan: "agentSessions.scan",
+  ompSessionsRead: "ompSessions.read",
+  ompSessionsAction: "ompSessions.action",
   agentSessionsImport: "agentSessions.import",
   assetsCreateUrl: "assets.createUrl",
   attachmentsCreateUploadUrl: "attachments.createUploadUrl",
@@ -827,6 +836,16 @@ const WsAgentSessionsScanRpc = Rpc.make(WS_METHODS.agentSessionsScan, {
   success: AgentSessionScanResult,
   error: Schema.Union([AgentSessionScanError, EnvironmentAuthorizationError]),
 });
+const WsOmpSessionsReadRpc = Rpc.make(WS_METHODS.ompSessionsRead, {
+  payload: OmpSessionsReadInput,
+  success: OmpSessionsReadResult,
+  error: Schema.Union([OmpSessionsError, EnvironmentAuthorizationError]),
+});
+const WsOmpSessionsActionRpc = Rpc.make(WS_METHODS.ompSessionsAction, {
+  payload: OmpSessionsActionInput,
+  success: OmpSessionsActionResult,
+  error: Schema.Union([OmpSessionsError, EnvironmentAuthorizationError]),
+});
 
 const WsAgentSessionsImportRpc = Rpc.make(WS_METHODS.agentSessionsImport, {
   payload: AgentSessionImportInput,
@@ -1250,6 +1269,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsShellOpenInEditorRpc,
   WsFilesystemBrowseRpc,
   WsAgentSessionsScanRpc,
+  WsOmpSessionsReadRpc,
+  WsOmpSessionsActionRpc,
   WsAgentSessionsImportRpc,
   WsAssetsCreateUrlRpc,
   WsAttachmentsCreateUploadUrlRpc,

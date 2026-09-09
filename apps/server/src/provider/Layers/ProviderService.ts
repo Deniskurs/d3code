@@ -9,6 +9,7 @@
  *
  * @module ProviderServiceLive
  */
+import { hasOmpTerminalHandoff } from "../ompSessionHistory.ts";
 import {
   EventId,
   MessageId,
@@ -1150,6 +1151,12 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     readonly binding: ProviderSessionDirectory.ProviderRuntimeBinding;
     readonly operation: string;
   }) {
+    if (input.binding.provider === "omp" && hasOmpTerminalHandoff(input.binding.runtimePayload)) {
+      return yield* toValidationError(
+        input.operation,
+        "This OMP session is handed to the terminal. Close OMP there, then choose OMP sessions > Refresh history before continuing in D3.",
+      );
+    }
     const bindingInstanceId = yield* requireBindingInstanceId(input.operation, input.binding);
     yield* Effect.annotateCurrentSpan({
       "provider.operation": "recover-session",
@@ -1358,6 +1365,15 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         }
         const persistedBinding = Option.getOrUndefined(yield* directory.getBinding(threadId));
         if (
+          persistedBinding?.provider === "omp" &&
+          hasOmpTerminalHandoff(persistedBinding.runtimePayload)
+        ) {
+          return yield* toValidationError(
+            "ProviderService.startSession",
+            "This OMP session is handed to the terminal. Close OMP there, then choose OMP sessions > Refresh history before continuing in D3.",
+          );
+        }
+        if (
           persistedBinding?.provider === resolvedProvider &&
           persistedBinding.providerInstanceId !== resolvedInstanceId &&
           (input.resumeCursor != null || persistedBinding.resumeCursor != null)
@@ -1496,6 +1512,16 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     });
 
     const attachments = parsed.attachments ?? [];
+    const handoffBinding = Option.getOrUndefined(yield* directory.getBinding(parsed.threadId));
+    if (
+      handoffBinding?.provider === "omp" &&
+      hasOmpTerminalHandoff(handoffBinding.runtimePayload)
+    ) {
+      return yield* toValidationError(
+        "ProviderService.sendTurn",
+        "This OMP session is handed to the terminal. Close OMP there, then choose OMP sessions > Refresh history before continuing in D3.",
+      );
+    }
     if (!parsed.input && attachments.length === 0 && parsed.continuation !== true) {
       return yield* toValidationError(
         "ProviderService.sendTurn",

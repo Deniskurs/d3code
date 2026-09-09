@@ -4,6 +4,7 @@ import {
   type ProjectScript,
   type ResolvedKeybindingsConfig,
   type ThreadId,
+  type ProviderInstanceId,
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
@@ -47,8 +48,11 @@ import {
   WorkspaceBreadcrumbSeparator,
 } from "../WorkspaceBreadcrumb";
 import { cn } from "~/lib/utils";
+import { OmpSessionsDialog } from "./OmpSessionsDialog";
 
 interface ChatHeaderProps {
+  ompInstanceId?: ProviderInstanceId | undefined;
+  onRunOmpTerminal?: ((command: string) => void) | undefined;
   activeThreadEnvironmentId: EnvironmentId;
   activeThreadId: ThreadId;
   draftId?: DraftId;
@@ -119,6 +123,8 @@ export function shouldShowOpenInPicker(input: {
 }
 
 export const ChatHeader = memo(function ChatHeader({
+  ompInstanceId,
+  onRunOmpTerminal,
   activeThreadEnvironmentId,
   activeThreadId,
   draftId,
@@ -409,6 +415,17 @@ export const ChatHeader = memo(function ChatHeader({
           "[[data-panel-animations=true]_&]:motion-safe:transition-[padding-right] [[data-panel-animations=true]_&]:motion-safe:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:motion-safe:ease-out",
         )}
       >
+        {ompInstanceId && activeProject && (
+          <OmpSessionsDialog
+            key={`${activeThreadEnvironmentId}:${activeProject.id}:${ompInstanceId}`}
+            environmentId={activeThreadEnvironmentId}
+            projectId={activeProject.id}
+            instanceId={ompInstanceId}
+            currentThreadId={activeThreadId}
+            scopeThreadId={isServerThread ? activeThreadId : undefined}
+            onRunTerminal={onRunOmpTerminal}
+          />
+        )}
         {activeProjectScripts && (
           <ProjectScriptsControl
             scripts={activeProjectScripts}

@@ -16,6 +16,7 @@ import {
   getProviderSkillsForSlashMenu,
   isProviderSkillUserInvocable,
   resolveProviderSkillsForCwd,
+  resolveProviderSlashCommandsForCwd,
 } from "@t3tools/client-runtime/providerSkills";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -283,7 +284,12 @@ export function useComposerCommandMenu({
         hasCompactableConversation,
         offersUsageLimits,
         allowInteractionMode: onUpdateInteractionMode !== undefined,
-        selectedProviderStatus,
+        selectedProviderStatus: selectedProviderStatus
+          ? {
+              ...selectedProviderStatus,
+              slashCommands: resolveProviderSlashCommandsForCwd(selectedProviderStatus, projectCwd),
+            }
+          : null,
       });
 
       const skillItems = getProviderSkillsForSlashMenu(skills, true)
@@ -402,6 +408,7 @@ export function useComposerCommandMenu({
     hasCompactableConversation,
     onUpdateInteractionMode,
     pathSearch.entries,
+    projectCwd,
     selectedProviderStatus,
     skills,
     trigger,

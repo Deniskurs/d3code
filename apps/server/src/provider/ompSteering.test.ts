@@ -7,6 +7,73 @@ import { describe, expect, it } from "@effect/vitest";
 import { createOmpSteering, type OmpSteeringContent } from "./ompSteering.ts";
 
 describe("OMP steering extension", () => {
+  it.effect(
+    "reads the complete active branch without compaction loss and checks session identity",
+    () =>
+      Effect.gen(function* () {
+        const platform = yield* HostProcessPlatform;
+        yield* Effect.promise(async () => {
+          const bridge = await createOmpSteering(platform);
+          const handlers = new Map<string, (event?: unknown, ctx?: unknown) => void>();
+          const module = await import(
+            /* @vite-ignore */ NodeURL.pathToFileURL(bridge.extensionPath).href
+          );
+          const server: NodeHttp.Server = module.default({
+            on: (name: string, handler: (event?: unknown, ctx?: unknown) => void) =>
+              handlers.set(name, handler),
+          });
+          let idle = true;
+          const createdAt = "2026-09-09T12:00:00.000Z";
+          handlers.get("session_start")?.(
+            {},
+            {
+              isIdle: () => idle,
+              sessionManager: {
+                getSessionId: () => "native-session",
+                getBranch: () => [
+                  {
+                    type: "message",
+                    id: "before",
+                    timestamp: createdAt,
+                    message: { role: "user", content: "Before compaction" },
+                  },
+                  { type: "compaction", summary: "Condensed context" },
+                  {
+                    type: "message",
+                    id: "after",
+                    timestamp: createdAt,
+                    message: {
+                      role: "assistant",
+                      content: [
+                        { type: "thinking", thinking: "private" },
+                        { type: "text", text: "After compaction" },
+                      ],
+                    },
+                  },
+                ],
+              },
+            },
+          );
+          try {
+            expect(await bridge.readHistory("native-session")).toEqual({
+              sessionId: "native-session",
+              messages: [
+                { nativeId: "before", role: "user", text: "Before compaction", createdAt },
+                { nativeId: "after", role: "assistant", text: "After compaction", createdAt },
+              ],
+            });
+            await expect(bridge.readHistory("wrong-session")).rejects.toThrow("could not read");
+            idle = false;
+            await expect(bridge.readHistory("native-session")).rejects.toThrow("could not read");
+          } finally {
+            const closed = new Promise<void>((resolve) => server.once("close", resolve));
+            handlers.get("session_shutdown")?.();
+            await closed;
+            await bridge.close();
+          }
+        });
+      }),
+  );
   it.effect("delivers text and images to the busy native session and rejects idle delivery", () =>
     Effect.gen(function* () {
       const platform = yield* HostProcessPlatform;
