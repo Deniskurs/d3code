@@ -709,7 +709,7 @@ export type GrokSettings = typeof GrokSettings.Type;
 export const OmpSettings = makeProviderSettingsSchema(
   {
     enabled: Schema.Boolean.pipe(
-      Schema.withDecodingDefault(Effect.succeed(false)),
+      Schema.withDecodingDefault(Effect.succeed(true)),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
     binaryPath: makeBinaryPathSetting("omp").pipe(
@@ -724,7 +724,7 @@ export const OmpSettings = makeProviderSettingsSchema(
       Schema.annotateKey({
         title: "Launch arguments",
         description:
-          "Additional CLI arguments passed after the omp acp command. T3 Code controls approval flags from the thread permission mode.",
+          "Additional CLI arguments passed after the omp acp command. D3 Code controls approval flags from the thread permission mode.",
         providerSettingsForm: {
           placeholder: "e.g. --config /path/to/config.yml",
           clearWhenEmpty: "omit",

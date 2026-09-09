@@ -1,3 +1,4 @@
+import mobilePackage from "./package.json";
 import type { ExpoConfig } from "expo/config";
 
 import { BRAND_ASSET_PATHS } from "../../scripts/lib/brand-assets.ts";
@@ -20,7 +21,7 @@ const IOS_BUNDLE_IDENTIFIER_PATTERN = /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
 const fromRepoRoot = (relativePath: string) => `../../${relativePath}`;
 // Android layers are rendered by scripts/export-android-icons.ts from the Icon Composer sources.
 // The wordmark sits inside the adaptive safe zone; the variant artwork is a full-bleed background.
-const androidAdaptiveForeground = "./assets/android-icon-foreground.png";
+const androidAdaptiveForeground = fromRepoRoot("assets/devis/mark.png");
 
 if (
   isIosPersonalTeamBuild &&
@@ -38,10 +39,10 @@ const DEVELOPMENT_ASSETS = {
   splashIcon: fromRepoRoot(BRAND_ASSET_PATHS.developmentIosIconPng),
   androidAdaptiveForeground,
   androidAdaptiveBackgroundColor: "#347FF8",
-  androidAdaptiveBackgroundImage: "./assets/android-icon-background-dev.png",
-  androidSplashIcon: "./assets/android-splash-icon-dev.png",
-  androidMonochromeIcon: "./assets/android-icon-mark.png",
-  androidNotificationIcon: "./assets/android-notification-icon.png",
+  androidAdaptiveBackgroundImage: fromRepoRoot("assets/devis/dev/background.png"),
+  androidSplashIcon: fromRepoRoot("assets/devis/dev/splash.png"),
+  androidMonochromeIcon: fromRepoRoot("assets/devis/monochrome.png"),
+  androidNotificationIcon: fromRepoRoot("assets/devis/notification.png"),
   androidNotificationColor: "#00639B",
 } as const;
 
@@ -51,10 +52,10 @@ const PREVIEW_ASSETS = {
   splashIcon: fromRepoRoot(BRAND_ASSET_PATHS.nightlyIosIconPng),
   androidAdaptiveForeground,
   androidAdaptiveBackgroundColor: "#111533",
-  androidAdaptiveBackgroundImage: "./assets/android-icon-background-nightly.png",
-  androidSplashIcon: "./assets/android-splash-icon-nightly.png",
-  androidMonochromeIcon: "./assets/android-icon-mark.png",
-  androidNotificationIcon: "./assets/android-notification-icon.png",
+  androidAdaptiveBackgroundImage: fromRepoRoot("assets/devis/nightly/background.png"),
+  androidSplashIcon: fromRepoRoot("assets/devis/nightly/splash.png"),
+  androidMonochromeIcon: fromRepoRoot("assets/devis/monochrome.png"),
+  androidNotificationIcon: fromRepoRoot("assets/devis/notification.png"),
   androidNotificationColor: "#7565C7",
 } as const;
 
@@ -65,9 +66,9 @@ const RELEASE_ASSETS = {
   androidAdaptiveForeground,
   androidAdaptiveBackgroundColor: "#000000",
   androidAdaptiveBackgroundImage: undefined,
-  androidSplashIcon: "./assets/android-splash-icon-prod.png",
-  androidMonochromeIcon: "./assets/android-icon-mark.png",
-  androidNotificationIcon: "./assets/android-notification-icon.png",
+  androidSplashIcon: fromRepoRoot("assets/devis/prod/splash.png"),
+  androidMonochromeIcon: fromRepoRoot("assets/devis/monochrome.png"),
+  androidNotificationIcon: fromRepoRoot("assets/devis/notification.png"),
   androidNotificationColor: "#FFFFFF",
 } as const;
 
@@ -175,7 +176,7 @@ const config: ExpoConfig = {
   slug: "t3-code",
   platforms: ["ios", "android"],
   scheme: variant.scheme,
-  version: "1.1.1",
+  version: mobilePackage.version,
   runtimeVersion: {
     // Development manifests resolve on every launch, so avoid fingerprint's
     // expensive native-project calculation there. Preview and production stay

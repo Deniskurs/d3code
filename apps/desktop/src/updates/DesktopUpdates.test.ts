@@ -1,5 +1,7 @@
 import { vi } from "vite-plus/test";
-vi.mock("@t3tools/shared/d3Build", () => ({ d3Build: { automaticUpdates: true } }));
+vi.mock("@t3tools/shared/d3Build", () => ({
+  d3Build: { automaticUpdates: true, repository: "Deniskurs/d3code" },
+}));
 import { assert, describe, it } from "@effect/vitest";
 import * as Cause from "effect/Cause";
 import * as Deferred from "effect/Deferred";

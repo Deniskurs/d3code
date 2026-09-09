@@ -16,9 +16,9 @@
     "start:marketing": "vp run --filter @t3tools/marketing preview",
     "start:mock-update-server": "node scripts/mock-update-server.ts",
     "screenshots:mobile": "node scripts/mobile-showcase.ts",
-    "icons:export": "node scripts/export-brand-icons.ts",
-    "icons:check": "node scripts/export-brand-icons.ts --check",
-    "icons:export:android": "node scripts/export-android-icons.ts",
+    "icons:export": "node scripts/export-devis-icons.ts",
+    "icons:check": "node scripts/export-devis-icons.ts --check",
+    "icons:export:android": "node scripts/export-devis-icons.ts",
     "build": "vp run --filter './apps/*' build",
     "build:marketing": "vp run --filter @t3tools/marketing build",
     "build:desktop": "vp run --filter @t3tools/desktop --filter t3 build",
@@ -46,7 +46,8 @@
     "dist:desktop:win:x64": "node scripts/build-desktop-artifact.ts --platform win --target nsis --arch x64",
     "release:smoke": "node scripts/release-smoke.ts",
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/*/dist apps/*/dist-electron packages/*/dist .vite-plus apps/*/.vite-plus packages/*/.vite-plus",
-    "sync:repos": "node scripts/sync-reference-repos.ts"
+    "sync:repos": "node scripts/sync-reference-repos.ts",
+    "d3:version": "node scripts/d3-version.ts"
   },
   "devDependencies": {
     "@effect/tsgo": "catalog:",

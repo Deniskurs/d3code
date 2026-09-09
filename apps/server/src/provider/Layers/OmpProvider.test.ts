@@ -13,6 +13,8 @@ import {
   parseOmpModelsJson,
 } from "./OmpProvider.ts";
 
+import { withOmpSearchPath } from "../ompEnvironment.ts";
+
 const decodeOmpSettings = Schema.decodeSync(OmpSettings);
 
 describe("OMP model catalog", () => {
@@ -278,5 +280,35 @@ it.layer(NodeServices.layer)("checkOmpProviderStatus", (it) => {
           ]);
         }),
       ),
+  );
+});
+
+it.layer(NodeServices.layer)("OMP first-run discovery", (it) => {
+  it.effect("finds a native install outside the inherited PATH", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const home = yield* fs.makeTempDirectoryScoped({ prefix: "d3-omp-discovery-" });
+        const directory = path.join(home, ".local", "bin");
+        yield* fs.makeDirectory(directory, { recursive: true });
+        const binary = path.join(directory, "omp");
+        yield* fs.writeFileString(
+          binary,
+          `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "omp/18.1.15"; elif [ "$1" = "models" ]; then echo '{"models":[{"provider":"openai","id":"test","selector":"openai/test","name":"Test"}]}'; else echo null; fi\n`,
+        );
+        yield* fs.chmod(binary, 0o755);
+        const snapshot = yield* checkOmpProviderStatus(
+          decodeOmpSettings({}),
+          withOmpSearchPath({ PATH: "/usr/bin:/bin" }, "darwin", home),
+        );
+        expect(snapshot).toMatchObject({ installed: true, version: "18.1.15", status: "ready" });
+        const missing = yield* checkOmpProviderStatus(
+          decodeOmpSettings({ binaryPath: path.join(home, "not-installed") }),
+          { PATH: "/usr/bin:/bin" },
+        );
+        expect(missing).toMatchObject({ installed: false, status: "error" });
+      }),
+    ),
   );
 });

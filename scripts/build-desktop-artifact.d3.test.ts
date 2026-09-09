@@ -7,6 +7,12 @@ it.effect("D3 artifacts never acquire the official update feed from CI environme
   Effect.gen(function* () {
     assert.equal(yield* resolveGitHubPublishConfig("nightly"), undefined);
     assert.equal(yield* resolveGitHubPublishConfig("latest"), undefined);
+    assert.deepStrictEqual(yield* resolveGitHubPublishConfig("latest", true), {
+      provider: "github",
+      owner: "Deniskurs",
+      repo: "d3code",
+      releaseType: "release",
+    });
   }).pipe(
     Effect.provide(
       ConfigProvider.layer(

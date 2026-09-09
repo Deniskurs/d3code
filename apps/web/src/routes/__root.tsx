@@ -103,7 +103,7 @@ export const Route = createRootRoute({
   component: RootRouteView,
   errorComponent: RootRouteErrorView,
   head: () => ({
-    meta: [{ name: "title", content: APP_DISPLAY_NAME }],
+    meta: [{ name: "title", content: "Code (Devis)" }],
   }),
 });
 
@@ -287,7 +287,7 @@ function DocumentTitleSync() {
   });
 
   useEffect(() => {
-    document.title = title;
+    document.title = title.startsWith("D3 ") ? title.slice(3) : title;
   }, [title]);
 
   return null;

@@ -1,0 +1,133 @@
+name: D3 Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      signed:
+        description: Sign and notarize the Mac build (requires D3 signing secrets)
+        type: boolean
+        default: true
+      draft_release:
+        description: Upload a draft GitHub release after verification
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d3-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.repository == 'Deniskurs/d3code'
+    runs-on: macos-15
+    timeout-minutes: 60
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          run-install: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+      - run: vp install --frozen-lockfile
+      - id: version
+        name: Validate D3 release version
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          const desktop = JSON.parse(fs.readFileSync('apps/desktop/package.json'));
+          const server = JSON.parse(fs.readFileSync('apps/server/package.json'));
+          const clients = ['apps/web/package.json', 'apps/mobile/package.json'].map(file => JSON.parse(fs.readFileSync(file)));
+          if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(desktop.version) || desktop.version !== server.version || clients.some(client => client.version !== desktop.version)) {
+            throw new Error('Desktop and server must have the same D3 release version.');
+          }
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${desktop.version}\n`);
+          JS
+      - name: Focused release checks
+        run: |
+          vp test run apps/web/src/onboarding/providerReadiness.logic.test.ts apps/server/src/provider/ompEnvironment.test.ts apps/server/src/provider/Layers/OmpProvider.test.ts apps/server/src/provider/Layers/OmpAdapter.test.ts apps/desktop/src/updates/DesktopUpdates.d3.test.ts scripts/build-desktop-artifact.d3.test.ts
+          vp run --filter t3 --filter @t3tools/web --filter @t3tools/desktop --filter @t3tools/scripts typecheck
+          vp run icons:check
+      - name: Build Mac installer
+        env:
+          SIGNED: ${{ inputs.signed }}
+          CSC_LINK: ${{ secrets.D3_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.D3_CSC_KEY_PASSWORD }}
+          APPLE_API_KEY_CONTENT: ${{ secrets.D3_APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.D3_APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.D3_APPLE_API_ISSUER }}
+        run: |
+          args=(--platform mac --target dmg --arch arm64)
+          if [[ "$SIGNED" == "true" ]]; then
+            for key in CSC_LINK CSC_KEY_PASSWORD APPLE_API_KEY_CONTENT APPLE_API_KEY_ID APPLE_API_ISSUER; do
+              if [[ -z "${!key}" ]]; then
+                echo "Missing signing secret: $key" >&2
+                exit 1
+              fi
+            done
+            export APPLE_API_KEY="$RUNNER_TEMP/D3-AuthKey.p8"
+            printf '%s' "$APPLE_API_KEY_CONTENT" > "$APPLE_API_KEY"
+            chmod 600 "$APPLE_API_KEY"
+            args+=(--signed)
+          fi
+          vp exec node scripts/build-desktop-artifact.ts "${args[@]}"
+      - name: Verify and prepare download
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          SIGNED: ${{ inputs.signed }}
+        run: |
+          hdiutil verify "release/D3-Code-${VERSION}-arm64.dmg"
+          if [[ "$SIGNED" == "true" ]]; then
+            test -f release/latest-mac.yml
+            ditto -x -k "release/D3-Code-${VERSION}-arm64.zip" "$RUNNER_TEMP/d3-verify"
+            codesign --verify --deep --strict "$RUNNER_TEMP/d3-verify/D3 Code (Devis).app"
+            spctl --assess --type execute "$RUNNER_TEMP/d3-verify/D3 Code (Devis).app"
+          fi
+          cp "release/D3-Code-${VERSION}-arm64.dmg" release/D3-Code-mac-arm64.dmg
+          cd release
+          shasum -a 256 ./*.dmg ./*.zip > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: d3-mac-${{ steps.version.outputs.version }}
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/*.blockmap
+            release/latest-mac.yml
+            release/SHA256SUMS.txt
+          if-no-files-found: error
+
+  draft:
+    if: inputs.draft_release && inputs.signed
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: d3-mac-${{ needs.build.outputs.version }}
+          path: release
+      - name: Create draft for review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_SHA: ${{ github.sha }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          cat > release-notes.md <<'NOTES'
+          D3 Code (Devis) for Apple Silicon Macs.
+
+          Download D3-Code-mac-arm64.dmg and drag D3 Code into Applications.
+          First-run setup detects Oh My Pi and provides installation and account setup inside the app.
+          Signed releases receive D3 app updates from this repository.
+
+          Review this draft and add the tested upstream T3 tag, OMP version, and changes before publishing.
+          NOTES
+          gh release create "v${VERSION}" release/* --target "$RELEASE_SHA" --title "D3 Code ${VERSION} (Devis)" --notes-file release-notes.md --draft

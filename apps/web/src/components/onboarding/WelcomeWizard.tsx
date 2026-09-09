@@ -594,8 +594,8 @@ function PairingForm({
             </p>
             <CommandBlock command="npx t3 pair" className="mt-2" />
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-              Start D3 Code first, or run <code className="font-mono">npx t3 serve</code>. Add{" "}
-              <code className="font-mono">--tailscale</code> to use your tailnet.
+              Start the D3 Code app first. Add <code className="font-mono">--tailscale</code> to use
+              your tailnet.
             </p>
           </CollapsiblePanel>
         </Collapsible>
@@ -606,7 +606,7 @@ function PairingForm({
 
 // ── Step 3: agents ───────────────────────────────────────────
 
-const PRIMARY_AGENT_DRIVERS = ["claudeAgent", "codex"] as const;
+const PRIMARY_AGENT_DRIVERS = ["omp", "claudeAgent", "codex"] as const;
 type OnboardingAgentDriver = (typeof PRIMARY_AGENT_DRIVERS)[number];
 
 /** Setup values stay fixed while provider probes refresh the surrounding cards. */
@@ -620,7 +620,7 @@ interface AgentTerminalSession {
 }
 
 /**
- * Claude Code and Codex use live probe status. Install opens the built-in
+ * Agents use live probe status. Install opens the built-in
  * terminal inline with the vendor's standalone installer pre-typed. The update
  * RPC can't install a binary that isn't there yet (it infers the installer from
  * the installed binary's path), and the terminal also handles the interactive
@@ -666,7 +666,11 @@ function AgentsStep({
 function ConnectedAgentsStep({
   environmentId,
   machineLabel,
+  instanceId,
+  readOnly = false,
 }: {
+  readonly instanceId?: ServerProvider["instanceId"];
+  readonly readOnly?: boolean;
   readonly environmentId: EnvironmentId;
   readonly machineLabel: string;
 }) {
@@ -683,9 +687,17 @@ function ConnectedAgentsStep({
     void refreshProviders({ environmentId, input: {} });
   }, [environmentId, refreshProviders]);
 
-  const byDriver = useMemo(() => selectOnboardingProvidersByDriver(providers), [providers]);
+  const byDriver = useMemo(
+    () =>
+      selectOnboardingProvidersByDriver(
+        instanceId
+          ? providers?.filter((provider) => provider.instanceId === instanceId)
+          : providers,
+      ),
+    [providers, instanceId],
+  );
 
-  const primaryAgents = PRIMARY_AGENT_DRIVERS.map((driver) => ({
+  const primaryAgents = (instanceId ? (["omp"] as const) : PRIMARY_AGENT_DRIVERS).map((driver) => ({
     driver,
     provider: byDriver.get(driver),
   }));
@@ -699,7 +711,7 @@ function ConnectedAgentsStep({
             driver={driver}
             provider={provider}
             terminalOpen={terminalSession?.driver === driver}
-            terminalAvailable={serverConfig !== null}
+            terminalAvailable={serverConfig !== null && !readOnly}
             onOpenTerminal={() => {
               if (provider === undefined || serverConfig === null) return;
               setTerminalSession({
@@ -737,6 +749,22 @@ function ConnectedAgentsStep({
   );
 }
 
+export function OmpSetupSection(props: {
+  readonly environmentId: EnvironmentId;
+  readonly environmentLabel: string;
+  readonly instanceId: ServerProvider["instanceId"];
+  readonly readOnly: boolean;
+}) {
+  return (
+    <ConnectedAgentsStep
+      environmentId={props.environmentId}
+      machineLabel={props.environmentLabel}
+      instanceId={props.instanceId}
+      readOnly={props.readOnly}
+    />
+  );
+}
+
 function AgentCard({
   driver,
   provider,
@@ -769,7 +797,19 @@ function AgentCard({
         </p>
       </div>
       <div className="shrink-0">
-        {providerState === "ready" ? (
+        {driver === "omp" &&
+        provider?.installed &&
+        providerState !== "checking" &&
+        providerState !== "disabled" ? (
+          <Button
+            size="xs"
+            variant="ghost"
+            onClick={onOpenTerminal}
+            disabled={terminalOpen || !terminalAvailable}
+          >
+            Set up accounts
+          </Button>
+        ) : providerState === "ready" ? (
           <span className="inline-flex items-center gap-1.5 text-xs font-medium text-success-foreground">
             <CheckIcon className="size-3.5" />
             Ready
@@ -828,6 +868,7 @@ function AgentInstallTerminal({
     [environmentId],
   );
   const [setupAttempt, setSetupAttempt] = useState(0);
+  const [setupStarted, setSetupStarted] = useState(false);
   const [setupState, setSetupState] = useState<
     "preparing" | "ready" | "openFailed" | "writeFailed"
   >("preparing");
@@ -905,7 +946,11 @@ function AgentInstallTerminal({
               terminal.
             </>
           ) : setupState === "ready" ? (
-            "Review the command, then press Enter to run it."
+            driver === "omp" ? (
+              "Run setup here, then follow the prompts. Close this panel when finished to check OMP again."
+            ) : (
+              "Review the command, then press Enter to run it."
+            )
           ) : setupState === "openFailed" ? (
             "Could not open the setup terminal."
           ) : (
@@ -913,6 +958,22 @@ function AgentInstallTerminal({
           )}
         </span>
         <div className="flex items-center gap-1">
+          {driver === "omp" && setupState === "ready" ? (
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={setupStarted}
+              onClick={() => {
+                setSetupStarted(true);
+                void writeTerminal({
+                  environmentId,
+                  input: { threadId: AGENT_ONBOARDING_THREAD_ID, terminalId, data: "\r" },
+                });
+              }}
+            >
+              Run setup
+            </Button>
+          ) : null}
           {setupState === "openFailed" ? (
             <Button size="xs" variant="ghost" onClick={() => setSetupAttempt((value) => value + 1)}>
               Retry

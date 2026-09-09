@@ -25,8 +25,8 @@ describe("branding", () => {
         desktopBridge: {
           getAppBranding: () => ({
             baseName: "D3 Code",
-            stageLabel: "Nightly",
-            displayName: "D3 Code (Nightly)",
+            stageLabel: "Devis",
+            displayName: "D3 Code (Devis)",
           }),
         },
       },
@@ -35,8 +35,8 @@ describe("branding", () => {
     const branding = await import("./branding");
 
     expect(branding.APP_BASE_NAME).toBe("D3 Code");
-    expect(branding.APP_STAGE_LABEL).toBe("Nightly");
-    expect(branding.APP_DISPLAY_NAME).toBe("D3 Code (Nightly)");
+    expect(branding.APP_STAGE_LABEL).toBe("Devis");
+    expect(branding.APP_DISPLAY_NAME).toBe("D3 Code (Devis)");
   });
 
   it("normalizes hosted app channel metadata", async () => {
@@ -46,8 +46,8 @@ describe("branding", () => {
 
     expect(branding.HOSTED_APP_CHANNEL).toBe("nightly");
     expect(branding.HOSTED_APP_CHANNEL_LABEL).toBe("Nightly");
-    expect(branding.APP_STAGE_LABEL).toBe("Nightly");
-    expect(branding.APP_DISPLAY_NAME).toBe("D3 Code (Nightly)");
+    expect(branding.APP_STAGE_LABEL).toBe("Devis");
+    expect(branding.APP_DISPLAY_NAME).toBe("D3 Code (Devis)");
   });
 
   it("does not label the latest hosted app channel", async () => {
@@ -57,8 +57,8 @@ describe("branding", () => {
 
     expect(branding.HOSTED_APP_CHANNEL).toBe("latest");
     expect(branding.HOSTED_APP_CHANNEL_LABEL).toBe("Latest");
-    expect(branding.APP_STAGE_LABEL).toBe("Latest");
-    expect(branding.APP_DISPLAY_NAME).toBe("D3 Code");
+    expect(branding.APP_STAGE_LABEL).toBe("Devis");
+    expect(branding.APP_DISPLAY_NAME).toBe("D3 Code (Devis)");
   });
 
   it("ignores unknown hosted app channels", async () => {
@@ -113,4 +113,15 @@ describe("branding logic", () => {
       }),
     ).toBe("D3 Code (Alpha)");
   });
+});
+
+it("preserves the Devis label when connected to a nightly server", () => {
+  expect(
+    resolveServerBackedAppDisplayName({
+      baseName: "D3 Code",
+      fallbackDisplayName: "D3 Code (Devis)",
+      fallbackStageLabel: "Devis",
+      primaryServerVersion: "0.0.41-nightly.20260909.1439",
+    }),
+  ).toBe("D3 Code (Devis)");
 });

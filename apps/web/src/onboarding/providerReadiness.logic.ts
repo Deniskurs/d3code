@@ -1,6 +1,7 @@
 import {
   ClaudeSettings,
   CodexSettings,
+  OmpSettings,
   type ExecutionEnvironmentPlatformOs,
   type ServerProvider,
   type ServerSettings,
@@ -9,6 +10,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 const decodeClaudeSettings = Schema.decodeUnknownOption(ClaudeSettings);
+const decodeOmpSettings = Schema.decodeUnknownOption(OmpSettings);
 const decodeCodexSettings = Schema.decodeUnknownOption(CodexSettings);
 const SAFE_SHELL_BINARY_PATTERN = /^[A-Za-z0-9_./:\\-]+$/;
 
@@ -37,6 +39,13 @@ export function getOnboardingProviderState(provider: ServerProvider | undefined)
   if (provider === undefined) return "checking";
   if (!provider.enabled || provider.status === "disabled") return "disabled";
   if (!provider.installed) return "install";
+  if (
+    provider.driver === "omp" &&
+    provider.version === null &&
+    provider.status === "warning" &&
+    provider.models.length === 0
+  )
+    return "checking";
   if (provider.auth.status === "unauthenticated") return "signIn";
   if (provider.status === "ready") return "ready";
   return "attention";
@@ -77,6 +86,10 @@ export function selectOnboardingProvidersByDriver(
  * one-click updater in Settings keeps working after install.
  */
 const NATIVE_INSTALL_COMMANDS = {
+  omp: {
+    windows: "irm https://omp.sh/install.ps1 | iex",
+    posix: "curl -fsSL https://omp.sh/install | sh",
+  },
   claudeAgent: {
     windows: "irm https://claude.ai/install.ps1 | iex",
     posix: "curl -fsSL https://claude.ai/install.sh | bash",
@@ -123,6 +136,17 @@ export function resolveOnboardingProviderLoginCommand(
     );
     const binaryPath = Option.isSome(config) ? config.value.binaryPath : "codex";
     return `${quoteProviderBinary(binaryPath, "codex", platform)} login`;
+  }
+
+  if (provider.driver === "omp") {
+    const config = decodeOmpSettings(instance ? (instance.config ?? {}) : settings.providers.omp);
+    const binaryPath = Option.isSome(config) ? config.value.binaryPath : "omp";
+    if (!binaryPath.trim() || binaryPath === "omp") {
+      return platform === "windows"
+        ? '$env:Path += ";$env:LOCALAPPDATA\\omp;$env:USERPROFILE\\.bun\\bin;$env:PI_INSTALL_DIR"; omp setup'
+        : 'export PATH="$PATH:$HOME/.local/bin:$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin${PI_INSTALL_DIR:+:$PI_INSTALL_DIR}"; omp setup';
+    }
+    return `${quoteProviderBinary(binaryPath, "omp", platform)} setup`;
   }
 
   return provider.driver;

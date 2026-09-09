@@ -252,7 +252,7 @@ export function buildInitialOmpProviderSnapshot(
             version: null,
             status: "warning",
             auth: { status: "unknown" },
-            message: "Oh My Pi is disabled in T3 Code settings.",
+            message: "Oh My Pi is disabled in D3 Code settings.",
           },
     });
   });
@@ -309,7 +309,7 @@ export const checkOmpProviderStatus = Effect.fn("checkOmpProviderStatus")(functi
         version: null,
         status: "warning",
         auth: { status: "unknown" },
-        message: "Oh My Pi is disabled in T3 Code settings.",
+        message: "Oh My Pi is disabled in D3 Code settings.",
       },
     });
   }

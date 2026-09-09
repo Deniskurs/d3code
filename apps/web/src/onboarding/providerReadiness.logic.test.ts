@@ -336,3 +336,38 @@ describe("resolveOnboardingProviderInstallCommand", () => {
     );
   });
 });
+
+describe("OMP first-run setup", () => {
+  const omp = {
+    ...readyCodex,
+    driver: ProviderDriverKind.make("omp"),
+    instanceId: ProviderInstanceId.make("omp"),
+  };
+  it("detects existing, missing, and disabled OMP installations", () => {
+    expect(getOnboardingProviderState(omp)).toBe("ready");
+    expect(getOnboardingProviderState({ ...omp, installed: false, status: "error" })).toBe(
+      "install",
+    );
+    expect(getOnboardingProviderState({ ...omp, enabled: false })).toBe("disabled");
+  });
+  it("uses the environment's native installer", () => {
+    expect(resolveOnboardingProviderInstallCommand("omp", "darwin")).toBe(
+      "curl -fsSL https://omp.sh/install | sh",
+    );
+    expect(resolveOnboardingProviderInstallCommand("omp", "windows")).toBe(
+      "irm https://omp.sh/install.ps1 | iex",
+    );
+  });
+  it("opens account setup on the configured executable, including paths with spaces", () => {
+    const settings = {
+      ...DEFAULT_SERVER_SETTINGS,
+      providers: {
+        ...DEFAULT_SERVER_SETTINGS.providers,
+        omp: { ...DEFAULT_SERVER_SETTINGS.providers.omp, binaryPath: "/Applications/My Tools/omp" },
+      },
+    };
+    expect(resolveOnboardingProviderLoginCommand(omp, settings, "darwin")).toBe(
+      "'/Applications/My Tools/omp' setup",
+    );
+  });
+});

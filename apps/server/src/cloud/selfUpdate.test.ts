@@ -1,6 +1,6 @@
 import { d3Build } from "@t3tools/shared/d3Build";
 import { vi } from "vite-plus/test";
-vi.mock("@t3tools/shared/d3Build", () => ({ d3Build: { automaticUpdates: true } }));
+vi.mock("@t3tools/shared/d3Build", () => ({ d3Build: { remoteServerUpdates: true } }));
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import { ServerSelfUpdateError, ThreadId } from "@t3tools/contracts";
@@ -112,13 +112,13 @@ it.layer(NodeServices.layer)("server self update", (it) => {
   it.effect("D3 refuses remote replacement without installing an official runtime", () =>
     Effect.gen(function* () {
       const { selfUpdate, order } = yield* makeHarness();
-      d3Build.automaticUpdates = false;
+      d3Build.remoteServerUpdates = false;
       try {
         const error = yield* selfUpdate.update({ targetVersion: "1.1.0" }).pipe(Effect.flip);
         expect(error.reason).toContain("D3 Code");
         expect(order).toEqual([]);
       } finally {
-        d3Build.automaticUpdates = true;
+        d3Build.remoteServerUpdates = true;
       }
     }),
   );

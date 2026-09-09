@@ -6,13 +6,13 @@ The OMP integration comes from [PR 8224](https://github.com/pingdotgg/t3code/pul
 
 ## Local use
 
-Install dependencies with `vp i`. Run `vp run dev --home-dir /tmp/d3-test` for a separate test environment, then open the pairing URL printed by the server. Enable Oh My Pi in Settings > Providers. OMP is installed separately; its credentials and profiles remain owned by OMP.
+Install dependencies with `vp i`. Run `vp run dev --home-dir /tmp/d3-test` for a separate test environment, then open the pairing URL printed by the server. Enable Oh My Pi in Settings > Providers. First-run setup and Settings > Providers > Oh My Pi offer installation and account setup inside D3; credentials and profiles remain owned by OMP.
 
 D3 uses `~/.d3` by default. Set `D3CODE_HOME` or pass `--home-dir` to select another location. An ambient `T3CODE_HOME` does not select D3's data. Desktop identity is `com.deniskurs.d3code`, browser storage uses the `d3code://` origin, and the display name is D3 Code. D3 does not migrate an official T3 installation's Electron profile.
 
 The npm-backed managed background service is unavailable in this local build; keep the D3 desktop app running to host the environment.
 
-Automatic desktop, remote server, and mobile OTA updates are disabled. Install a freshly tested D3 artifact to update. Do not use official T3 installers to update D3.
+Signed desktop releases update only from `Deniskurs/d3code`. Unsigned local builds have no update feed. Remote server replacement and mobile OTA updates remain disabled. See [D3 releases](d3-releases.md) for signing, first-run OMP setup, and publishing.
 
 Build a local unsigned macOS artifact with `vp run dist:desktop:dmg:arm64`. Artifacts are written to `release/`. A changed bundle identifier requires separate signing and provisioning if distributing signed desktop or mobile builds.
 
@@ -26,7 +26,7 @@ The selected upstream tag is recorded in `packages/shared/src/d3Build.ts`. Night
 2. Select a published nightly with `gh release list --repo pingdotgg/t3code`.
 3. Create a local update branch from the working D3 branch, then merge that exact tag.
 4. Resolve conflicts while retaining D3's identity, isolated home settings, disabled official updaters, and OMP provider registration.
-5. Update the pinned tag and desktop/server package versions. Run `vp i` if dependencies changed.
+5. Update the pinned upstream tag and bump the independent D3 app version with `vp run d3:version <version>`. Run `vp i` if dependencies changed.
 6. Run the focused OMP suites, ACP regressions, D3 identity and updater tests, and affected package typechecks. Test a real OMP conversation, approvals, cancellation and resume in isolated state.
 7. Build and inspect the artifact before installing it. Record the tested T3 tag and OMP version in the release notes when publishing an authorized D3 release.
 

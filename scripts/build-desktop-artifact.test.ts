@@ -1,5 +1,7 @@
 import { vi } from "vite-plus/test";
-vi.mock("../packages/shared/src/d3Build.ts", () => ({ d3Build: { automaticUpdates: true } }));
+vi.mock("@t3tools/shared/d3Build", () => ({
+  d3Build: { automaticUpdates: true, repository: "Deniskurs/d3code" },
+}));
 // @effect-diagnostics nodeBuiltinImport:off - Tests use Node's glob matcher to verify electron-builder exclusions.
 import * as NodeCrypto from "node:crypto";
 import * as NodePath from "node:path";
@@ -266,8 +268,8 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
   });
 
   it("switches desktop packaging product names to nightly for nightly builds", () => {
-    assert.equal(resolveDesktopProductName("0.0.17"), "D3 Code (Alpha)");
-    assert.equal(resolveDesktopProductName("0.0.17-nightly.20260413.42"), "D3 Code (Nightly)");
+    assert.equal(resolveDesktopProductName("0.0.17"), "D3 Code (Devis)");
+    assert.equal(resolveDesktopProductName("0.0.17-nightly.20260413.42"), "D3 Code (Devis)");
   });
 
   it("switches desktop packaging icons to the nightly artwork for nightly versions", () => {
@@ -291,7 +293,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
   it.effect("resolves GitHub desktop publish config from Effect config", () =>
     Effect.gen(function* () {
-      const latestConfig = yield* resolveGitHubPublishConfig("latest").pipe(
+      const latestConfig = yield* resolveGitHubPublishConfig("latest", true).pipe(
         Effect.provide(
           ConfigProvider.layer(
             ConfigProvider.fromEnv({
@@ -302,7 +304,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
           ),
         ),
       );
-      const nightlyConfig = yield* resolveGitHubPublishConfig("nightly").pipe(
+      const nightlyConfig = yield* resolveGitHubPublishConfig("nightly", true).pipe(
         Effect.provide(
           ConfigProvider.layer(
             ConfigProvider.fromEnv({
@@ -316,14 +318,14 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
       assert.deepStrictEqual(latestConfig, {
         provider: "github",
-        owner: "pingdotgg",
-        repo: "t3code",
+        owner: "Deniskurs",
+        repo: "d3code",
         releaseType: "release",
       });
       assert.deepStrictEqual(nightlyConfig, {
         provider: "github",
-        owner: "pingdotgg",
-        repo: "t3code",
+        owner: "Deniskurs",
+        repo: "d3code",
         releaseType: "prerelease",
         channel: "nightly",
       });
@@ -345,7 +347,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         "mac",
         "dmg",
         "0.0.33",
-        false,
+        true,
         false,
         undefined,
         undefined,
@@ -355,8 +357,8 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.deepStrictEqual(release.publish, [
         {
           provider: "github",
-          owner: "pingdotgg",
-          repo: "t3code",
+          owner: "Deniskurs",
+          repo: "d3code",
           releaseType: "release",
         },
       ]);
@@ -665,7 +667,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         "**/node_modules/.bin/**",
       ]);
       assert.deepStrictEqual(mac.dmg, {
-        title: "D3 Code (Alpha) 1.2.3 Installer",
+        title: "D3 Code (Devis) 1.2.3 Installer",
         background: "dmg/dmg-background-latest.png",
         window: { width: 640, height: 432 },
         contents: [

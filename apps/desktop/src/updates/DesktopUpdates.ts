@@ -196,6 +196,14 @@ const {
   logError: logUpdaterError,
 } = DesktopObservability.makeComponentLogger("desktop-updater");
 
+/** Only D3's release repository may replace this application. */
+export function isD3UpdateFeed(config: Readonly<Record<string, string>>): boolean {
+  return (
+    config.provider === "github" &&
+    `${config.owner}/${config.repo}`.toLowerCase() === d3Build.repository.toLowerCase()
+  );
+}
+
 function parseAppUpdateYml(raw: string): Effect.Effect<Option.Option<AppUpdateYmlConfig>> {
   const entries: Record<string, string> = {};
   for (const line of raw.split("\n")) {
@@ -336,7 +344,11 @@ export const make = Effect.gen(function* () {
   );
 
   const hasUpdateFeedConfig = Ref.get(appUpdateYmlConfigRef).pipe(
-    Effect.map((appUpdateYmlConfig) => Option.isSome(appUpdateYmlConfig) || config.mockUpdates),
+    Effect.map(
+      (appUpdateYmlConfig) =>
+        (Option.isSome(appUpdateYmlConfig) && isD3UpdateFeed(appUpdateYmlConfig.value)) ||
+        config.mockUpdates,
+    ),
   );
 
   const resolveDisabledReason = Effect.gen(function* () {
