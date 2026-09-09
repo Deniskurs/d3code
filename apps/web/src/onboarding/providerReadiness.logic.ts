@@ -162,7 +162,7 @@ export function resolveOnboardingProviderLoginCommand(
   return provider.driver;
 }
 
-/** ACP reports some credential failures as assistant text rather than request errors. */
+/** Fallback for actual provider errors that do not carry an ACP authentication code. */
 export function hasOmpAuthenticationError(text: string | null | undefined): boolean {
   return (
     typeof text === "string" &&

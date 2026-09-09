@@ -1,3 +1,7 @@
+import { useDeliveryMode } from "../outbox/deliveryMode";
+import { CommandId } from "@t3tools/contracts";
+import { enqueueOutbox } from "../outbox/store";
+import { OutboxPanel } from "../outbox/OutboxPanel";
 import { hasOmpAuthenticationError } from "../onboarding/providerReadiness.logic";
 import { useLoadBalancedEnvironment } from "../hooks/useLoadBalancedEnvironment";
 import type { UsageLimitSourceSnapshots } from "@t3tools/contracts";
@@ -220,7 +224,7 @@ import {
   PaperclipIcon,
   WifiOffIcon,
 } from "lucide-react";
-import { cn, randomHex } from "~/lib/utils";
+import { cn, randomHex, randomUUID } from "~/lib/utils";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
 import { type NewProjectScriptInput } from "./ProjectScriptsControl";
@@ -1570,7 +1574,7 @@ export default function ChatView(props: ChatViewProps) {
   const composerFilesRef = useRef<ComposerFileAttachment[]>([]);
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
   const composerElementContextsRef = useRef<ElementContextDraft[]>([]);
-  const [ompDeliveryMode, setOmpDeliveryMode] = useState<"steer" | "queue">("steer");
+  const [ompDeliveryMode, setOmpDeliveryMode] = useDeliveryMode(routeThreadKey);
   const localComposerRef = useRef<ChatComposerHandle | null>(null);
   const composerRef = useComposerHandleContext() ?? localComposerRef;
   const [restingComposerControlsHost, setRestingComposerControlsHost] =
@@ -5889,12 +5893,11 @@ export default function ChatView(props: ChatViewProps) {
       }),
     [feedbackSubmissions, routeThreadKey],
   );
-  const latestOmpMessage = timelineMessages.at(-1);
   const ompNeedsAuth =
     selectedProvider === "omp" &&
     (activeProviderStatus?.auth.status === "unauthenticated" ||
       hasOmpAuthenticationError(threadError) ||
-      (latestOmpMessage?.role === "assistant" && hasOmpAuthenticationError(latestOmpMessage.text)));
+      hasOmpAuthenticationError(activeThread?.session?.lastError));
   const composerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
     const ompAuthItems: ComposerBannerStackItem[] =
       ompNeedsAuth && activeProviderInstanceId
@@ -6831,6 +6834,59 @@ export default function ChatView(props: ChatViewProps) {
       setDockedDraftHeroThreadKey((currentThreadKey) =>
         currentThreadKey === activeThreadKey ? null : currentThreadKey,
       );
+      return;
+    }
+    if (
+      ctxSelectedProvider === "omp" &&
+      ompDeliveryMode === "queue" &&
+      isServerThread &&
+      !isFirstMessage
+    ) {
+      try {
+        const localAttachments = composerAttachmentsSnapshot.map((attachment) => {
+          if (!attachment.file)
+            throw new Error(
+              `Reattach ${attachment.name} to save a durable queued copy on this device.`,
+            );
+          const {
+            uploadedAttachmentId: _uploadedId,
+            uploadEnvironmentId: _uploadedEnvironment,
+            ...file
+          } = attachment.type === "file"
+            ? attachment
+            : { ...attachment, uploadedAttachmentId: undefined, uploadEnvironmentId: undefined };
+          return { ...file, id: randomUUID() };
+        });
+        const messageId = newMessageId();
+        await enqueueOutbox({
+          id: messageId,
+          environmentId,
+          queuedAt: new Date().toISOString(),
+          status: "waiting",
+          localAttachments,
+          input: {
+            commandId: CommandId.make(randomUUID()),
+            threadId: threadIdForSend,
+            message: { messageId, role: "user", text: outgoingMessageText, attachments: [] },
+            modelSelection: ctxSelectedModelSelection,
+            runtimeMode,
+            interactionMode: sendInteractionMode,
+            deliveryMode: "queue",
+          },
+        });
+        promptRef.current = "";
+        clearComposerDraftContent(composerDraftTarget);
+        composerRef.current?.resetCursorState();
+        if (turnUsesAttachmentUploads) releaseDraftAttachments(composerAttachmentsSnapshot);
+        setThreadError(threadIdForSend, null);
+      } catch (error) {
+        setThreadError(
+          threadIdForSend,
+          error instanceof Error ? error.message : "Could not save the queued message.",
+        );
+      } finally {
+        sendInFlightRef.current = false;
+      }
       return;
     }
     beginLocalDispatch({
@@ -8374,30 +8430,54 @@ export default function ChatView(props: ChatViewProps) {
                     <ComposerSurface.Shell contextStrip={showComposerContextStrip}>
                       <ComposerSurface.Host>
                         <div ref={attachDraftHeroComposerAnchorRef} className="relative z-10">
-                          {selectedProvider === "omp" && isWorking ? (
-                            <div className="flex flex-wrap items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
-                              <label htmlFor="omp-delivery-mode">Send next message</label>
-                              <select
-                                id="omp-delivery-mode"
-                                className="rounded border border-border bg-background px-2 py-1 text-foreground"
-                                value={ompDeliveryMode}
-                                onChange={(event) =>
-                                  setOmpDeliveryMode(
-                                    event.target.value === "queue" ? "queue" : "steer",
-                                  )
-                                }
+                          {activeThread ? (
+                            <OutboxPanel
+                              environmentId={environmentId}
+                              threadId={activeThread.id}
+                              working={isWorking}
+                            />
+                          ) : null}
+                          {selectedProvider === "omp" &&
+                          (isWorking || ompDeliveryMode === "queue") ? (
+                            <div className="flex flex-wrap items-center gap-2 px-3 py-2 text-xs">
+                              <div
+                                role="group"
+                                aria-label="Message delivery"
+                                className="inline-flex rounded-lg bg-muted p-0.5"
                               >
-                                <option value="steer">Steer current task</option>
-                                <option value="queue">Queue after current task</option>
-                              </select>
-                              <span>
+                                {(["steer", "queue"] as const).map((mode) => (
+                                  <button
+                                    key={mode}
+                                    type="button"
+                                    aria-pressed={ompDeliveryMode === mode}
+                                    className={cn(
+                                      "rounded-md px-3 py-1.5 font-medium",
+                                      ompDeliveryMode === mode
+                                        ? "bg-background text-foreground shadow-sm"
+                                        : "text-muted-foreground hover:text-foreground",
+                                    )}
+                                    onClick={() => setOmpDeliveryMode(mode)}
+                                  >
+                                    {mode === "steer" ? "Steer" : "Queue"}
+                                  </button>
+                                ))}
+                              </div>
+                              <span className="text-muted-foreground">
                                 {ompDeliveryMode === "steer"
-                                  ? "Redirect OMP while it works."
-                                  : "Run when OMP finishes this task."}
+                                  ? "Redirect at the next message boundary"
+                                  : "After the current task, in order"}
                               </span>
                             </div>
                           ) : null}
                           <ChatComposer
+                            sendActionLabel={
+                              selectedProvider === "omp" &&
+                              (isWorking || ompDeliveryMode === "queue")
+                                ? ompDeliveryMode === "queue"
+                                  ? "Queue"
+                                  : "Steer"
+                                : undefined
+                            }
                             composerRef={composerRef}
                             composerDraftTarget={composerDraftTarget}
                             environmentId={environmentId}

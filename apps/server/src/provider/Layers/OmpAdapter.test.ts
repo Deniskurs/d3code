@@ -1240,7 +1240,8 @@ ompAdapterTestLayer("OmpAdapterLive", (it) => {
       const failedTurn = yield* Fiber.join(failedTurnFiber);
       assert.equal(failedTurn._tag, "Some");
       if (failedTurn._tag === "Some" && failedTurn.value.type === "turn.completed") {
-        assert.match(failedTurn.value.payload.errorMessage ?? "", /Set up accounts/);
+        assert.match(failedTurn.value.payload.errorMessage ?? "", /Mock prompt failure/);
+        assert.notMatch(failedTurn.value.payload.errorMessage ?? "", /Set up accounts/);
       }
       const session = (yield* adapter.listSessions()).find((entry) => entry.threadId === threadId);
       assert.equal(session?.status, "ready");

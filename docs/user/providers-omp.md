@@ -16,10 +16,16 @@ Use **Check for updates** in the provider settings to keep OMP current. D3's app
 
 You can send another message while OMP is working. In the web or desktop composer, choose:
 
-- **Steer current task** to redirect the running task. OMP may interrupt its current tool batch to follow your new instruction.
-- **Queue after current task** to start a separate turn when the current task finishes.
+- **Steer** to redirect the running task at OMP's next message or tool boundary. It does not stop the current model response instantly.
+- **Queue** to save a follow-up until the current task finishes. The send button uses the same label, and Enter follows the selected mode.
 
-Then send with the arrow button or Enter. Steering also supports attached images. Other clients default to steering when sending to a running OMP session. If an OMP installation cannot load D3's steering extension, messages fall back to waiting for the current turn.
+The queue appears above the composer. You can edit or remove unsent messages, pause and resume delivery, or choose **Send now** to steer with a queued message. Delivery pauses after a stopped or failed task and while OMP needs an approval or answer. Use **Send now** when you are ready to continue after a failure.
+
+Queued messages and their attachments are saved on the device where you queued them. Keep D3 open to deliver them; reopening it resumes the queue after reconnecting. Switching conversations does not stop delivery. The queue is not shared with another device or the native mobile client. A file restored from an older draft may need reattaching before it can be saved in the queue.
+
+Messages become read-only once submission starts. If delivery cannot be confirmed, **Retry delivery** reuses the original message ID to avoid a duplicate. **Submitted** means the server accepted the command; the conversation shows the response when OMP processes it.
+
+Other clients default to steering when sending to a running OMP session. If an OMP installation cannot load D3's steering extension, messages fall back to waiting for the current turn.
 
 ## Models and profiles
 

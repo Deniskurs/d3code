@@ -1,3 +1,4 @@
+import { ompFailureDetail } from "../ompErrors.ts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import {
   ApprovalRequestId,
@@ -76,8 +77,7 @@ function mapOmpAcpToAdapterError(method: string, cause: unknown): ProviderAdapte
   return new ProviderAdapterRequestError({
     provider: PROVIDER,
     method,
-    detail:
-      "Oh My Pi request failed. If your login has expired, open Settings > Providers > Oh My Pi > Set up accounts, sign in again, then retry.",
+    detail: ompFailureDetail(cause),
     cause,
   });
 }
@@ -1065,8 +1065,7 @@ export function makeOmpAdapter(ompSettings: OmpSettings, options?: OmpAdapterLiv
                 turnId,
                 payload: {
                   state: "failed",
-                  errorMessage:
-                    "Oh My Pi request failed. Open Settings > Providers > Oh My Pi > Set up accounts to check your login and default model, then retry.",
+                  errorMessage: ompFailureDetail(Cause.squash(promptExit.cause)),
                 },
               });
             }
