@@ -71,12 +71,32 @@ jobs:
                 exit 1
               fi
             done
+            # Import explicitly: electron-builder 26.15 uses the certificate password
+            # where its temporary keychain password is required.
+            keychain_password="$(openssl rand -hex 32)"
+            echo "::add-mask::$keychain_password"
+            export CSC_KEYCHAIN="$RUNNER_TEMP/d3-signing.keychain-db"
+            printf '%s' "$CSC_LINK" | base64 --decode > "$RUNNER_TEMP/d3-signing.p12"
+            security create-keychain -p "$keychain_password" "$CSC_KEYCHAIN"
+            security set-keychain-settings -lut 21600 "$CSC_KEYCHAIN"
+            security unlock-keychain -p "$keychain_password" "$CSC_KEYCHAIN"
+            security import "$RUNNER_TEMP/d3-signing.p12" -k "$CSC_KEYCHAIN" -P "$CSC_KEY_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productbuild
+            security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$CSC_KEYCHAIN"
+            security list-keychains -d user -s "$CSC_KEYCHAIN" "$HOME/Library/Keychains/login.keychain-db"
+            unset CSC_LINK CSC_KEY_PASSWORD
             export APPLE_API_KEY="$RUNNER_TEMP/D3-AuthKey.p8"
             printf '%s' "$APPLE_API_KEY_CONTENT" > "$APPLE_API_KEY"
             chmod 600 "$APPLE_API_KEY"
             args+=(--signed)
           fi
           vp exec node scripts/build-desktop-artifact.ts "${args[@]}"
+      - name: Remove temporary signing keychain
+        if: always() && inputs.signed
+        run: |
+          if [[ -f "$RUNNER_TEMP/d3-signing.keychain-db" ]]; then
+            security delete-keychain "$RUNNER_TEMP/d3-signing.keychain-db"
+          fi
+          rm -f "$RUNNER_TEMP/d3-signing.p12" "$RUNNER_TEMP/D3-AuthKey.p8"
       - name: Verify and prepare download
         env:
           VERSION: ${{ steps.version.outputs.version }}
