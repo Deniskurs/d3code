@@ -1,5 +1,5 @@
-blank_issues_enabled: false
+blank_issues_enabled: true
 contact_links:
-  - name: Feature request
-    url: https://github.com/pingdotgg/t3code/discussions/categories/ideas
-    about: Suggest an improvement or new capability in Discussions.
+  - name: Download D3 Code
+    url: https://github.com/Deniskurs/d3code/releases/latest
+    about: Get the current D3 Code (Devis) release and installation instructions.

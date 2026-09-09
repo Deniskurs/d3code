@@ -1,125 +1,69 @@
-# D3 Code
+<p align="center">
+  <img src="assets/devis/prod/icon.png" alt="D3 Code icon" width="128" height="128">
+</p>
 
-Personal T3 Code fork with Oh My Pi support. See [D3 setup and updates](docs/operations/d3-code.md).
+<h1 align="center">D3 Code (Devis)</h1>
 
-# T3 Code
+<p align="center">A desktop workspace for coding agents, with Oh My Pi built in as a provider.</p>
 
-T3 Code is an "agent harness control surface". It enables control of the agents on your machine with a best-in-class mobile app ([iOS](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824), [Android](https://play.google.com/store/apps/details?id=com.t3tools.t3code)), [web app](https://app.t3.codes) and [Electron-based desktop app](https://t3.codes).
+<p align="center">
+  <a href="https://github.com/Deniskurs/d3code/releases/latest/download/D3-Code-mac-arm64.dmg"><strong>Download for Mac</strong></a>
+  &nbsp; · &nbsp;
+  <a href="https://github.com/Deniskurs/d3code/releases">Release notes</a>
+  &nbsp; · &nbsp;
+  <a href="docs/user/install.md">Getting started</a>
+</p>
 
-Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, OpenCode, and Google Antigravity. If they're set up on your computer, T3 Code can control them.
+## Your agents, in one workspace
 
-## "Wait, what are you selling me?"
+D3 Code brings agent conversations, projects, terminals, and code changes together.
+Use Oh My Pi, Codex, Claude Code, Cursor, Grok, OpenCode, or Antigravity with the
+accounts and subscriptions supported by each provider.
 
-Nothing. We built T3 Code because we wanted the best possible development experience with agents. We were inspired by existing solutions like the Codex desktop app, Conductor, Claude Desktop and Cursor Glass, but none met our bar.
+- **Oh My Pi setup inside the app.** Detect an existing installation, install OMP
+  when it is missing, and configure accounts without opening a separate terminal.
+- **Projects and conversations.** Keep work organized, review changes, and continue
+  conversations across app restarts.
+- **Independent releases.** D3 has its own version numbers, icons, application
+  identity, and update source.
 
-We wanted something performant, remote-ready, and truly open. If we ever go the wrong direction, we want you to have everything you need to fork and build the editor that you want.
+## Install
 
-## Installation
+The current release supports **Apple Silicon Macs (M1 or newer)**.
 
-> [!WARNING]
-> T3 Code currently supports Codex, Claude, Cursor, Grok Build, OpenCode, and Antigravity. Install and authenticate at least one provider before use:
->
-> - Codex: install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`
-> - Claude: install [Claude Code](https://claude.com/product/claude-code) and run `claude auth login`
-> - Cursor: install [Cursor CLI](https://cursor.com/cli) and run `agent login`
-> - Grok Build: install [Grok Build CLI](https://x.ai/cli) and run `grok login`
-> - OpenCode: install [OpenCode](https://opencode.ai) and run `opencode auth login`
-> - Antigravity: enable it in Settings, then use **Install Antigravity** and **Sign in with Google**. No CLI is required.
+1. [Download D3 Code](https://github.com/Deniskurs/d3code/releases/latest/download/D3-Code-mac-arm64.dmg).
+2. Open the DMG and drag **D3 Code (Devis)** into Applications.
+3. Launch D3 and follow setup to connect your agents and open a project.
 
-### Try it out (install-free)
+The Mac release is signed and notarized by Apple. No App Store installation is
+required. Intel Mac, Windows, Linux, and mobile downloads are not currently
+published by this project.
 
-The easiest way to test T3 Code is to run the server in your terminal (requires Node.js 22.16+, 23.11+, or 24.10+):
+## Updates
 
-```bash
-npx t3@latest
-```
+Future signed D3 releases appear through the app's download and restart controls.
+OMP updates have separate provider controls. If you installed an earlier unsigned
+D3 build, install the signed release manually once.
 
-This will launch T3 Code's backend on your machine as well as the local web app to control your agents.
+The download link above always points to the latest published release.
 
-Tip: Use `npx t3@latest --help` for the full CLI reference.
+## Build from source
 
-### Desktop app
+Install [Vite+](https://viteplus.dev/guide/), then run:
 
-Install the latest version of the desktop app from [GitHub Releases](https://github.com/pingdotgg/t3code/releases), or from your favorite package registry:
-
-#### Windows (`winget`)
-
-```bash
-winget install T3Tools.T3Code
-```
-
-#### macOS (Homebrew)
-
-```bash
-brew install --cask t3-code
-```
-
-#### Arch Linux (AUR)
-
-Stable:
-
-```bash
-yay -S t3code-bin
-```
-
-Nightly:
-
-```bash
-yay -S t3code-nightly-bin
-```
-
-The AUR packaging is maintained in this repository under [`packaging/aur`](./packaging/aur).
-
-## Some notes
-
-We are very very early in this project. Expect bugs.
-
-We are (mostly) not accepting contributions yet. Small fixes may be considered. Big features will not be.
-
-## Documentation
-
-Full docs live in [docs/](./docs). There's no docs site yet.
-
-- [Install and first run](./docs/user/install.md)
-- [Permission modes](./docs/user/permission-modes.md)
-- [Keyboard shortcuts](./docs/user/keybindings.md)
-- [Project settings](./docs/user/project-settings.md)
-- [Remote access from a phone or another machine](./docs/user/remote-access.md)
-- [Keeping app and server in sync](./docs/user/updating.md)
-- [Source control integrations](./docs/user/source-control.md)
-- Multiple accounts: [Codex](./docs/user/providers-codex.md) · [Claude](./docs/user/providers-claude.md)
-- [Run T3 Code as a background service](./docs/user/background-service.md)
-
-Building from source? Start at [docs/internals/overview.md](./docs/internals/overview.md).
-
-## If you REALLY want to contribute still.... read this first
-
-### Install `vp`
-
-T3 Code uses Vite+ so you'll need to install the global `vp` command-line tool.
-
-#### macOS / Linux
-
-```bash
-curl -fsSL https://vite.plus | bash
-```
-
-#### Windows
-
-```bash
-irm https://vite.plus/ps1 | iex
-```
-
-Checkout their getting started guide for more information: https://viteplus.dev/guide/
-
-### Install dependencies
-
-```bash
+```sh
+git clone https://github.com/Deniskurs/d3code.git
+cd d3code
 vp i
+vp run dev
 ```
 
-Read [CONTRIBUTING.md](./CONTRIBUTING.md) before reporting a bug or opening a PR.
+Open the pairing URL printed by the development server. For Mac packaging,
+run `vp run dist:desktop:dmg:arm64`; local unsigned artifacts appear in `release/`.
 
-Have a feature request? Start an [Ideas discussion](https://github.com/pingdotgg/t3code/discussions/categories/ideas).
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes.
 
-Need support? Join the [Discord](https://discord.gg/jn4EGJjrvv).
+## License
+
+[MIT](LICENSE). Copyright and third-party notices are retained in the source and
+application distribution.
