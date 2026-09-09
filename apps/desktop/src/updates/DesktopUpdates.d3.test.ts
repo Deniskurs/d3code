@@ -1,8 +1,49 @@
 import { assert, it } from "@effect/vitest";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Effect from "effect/Effect";
+import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopUpdates from "./DesktopUpdates.ts";
-import { makeHarness } from "./updatesTestHarness.ts";
+import { flushCallbacks, makeHarness } from "./updatesTestHarness.ts";
+
+it.effect(
+  "repairs a saved Nightly selection and discovers Devis updates on the published feed",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const resourcesPath = yield* fs.makeTempDirectoryScoped({ prefix: "d3-update-feed-" });
+        yield* fs.writeFileString(
+          `${resourcesPath}/app-update.yml`,
+          "provider: github\nowner: Deniskurs\nrepo: d3code\n",
+        );
+        const harness = makeHarness({
+          resourcesPath,
+          env: { T3CODE_DESKTOP_MOCK_UPDATES: "false" },
+        });
+        yield* Effect.gen(function* () {
+          const settings = yield* DesktopAppSettings.DesktopAppSettings;
+          yield* settings.setUpdateChannel("nightly");
+          const updates = yield* DesktopUpdates.DesktopUpdates;
+          yield* updates.configure;
+          assert.equal((yield* settings.get).updateChannel, "latest");
+          assert.equal((yield* updates.getState).channel, "latest");
+          assert.deepEqual(harness.channels(), ["latest"]);
+          assert.equal((yield* updates.setChannel("nightly")).channel, "latest");
+          assert.equal((yield* settings.get).updateChannel, "latest");
+          const result = yield* updates.check("manual");
+          assert.equal(result.checked, true);
+          assert.equal(harness.checkCount(), 1);
+          harness.emit("update-available", { version: "1.2.4" });
+          yield* flushCallbacks;
+          const state = yield* updates.getState;
+          assert.equal(state.status, "available");
+          assert.equal(state.availableVersion, "1.2.4");
+        }).pipe(Effect.provide(harness.layer));
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+);
 
 it.effect("unsigned D3 stays disabled without a release feed", () => {
   const harness = makeHarness({ env: { T3CODE_DESKTOP_MOCK_UPDATES: "false" } });

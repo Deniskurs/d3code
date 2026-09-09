@@ -20,6 +20,7 @@ import * as DesktopUpdates from "./DesktopUpdates.ts";
 export const flushCallbacks = Effect.yieldNow;
 
 export interface UpdatesHarnessOptions {
+  readonly resourcesPath?: string;
   readonly checkForUpdates?: Effect.Effect<
     void,
     ElectronUpdater.ElectronUpdaterCheckForUpdatesError
@@ -41,6 +42,7 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
   let allowDowngrade = false;
   let fullChangelog = false;
   const feedUrls: ElectronUpdater.ElectronUpdaterFeedUrl[] = [];
+  const channels: string[] = [];
   const listeners = new Map<string, Set<(...args: readonly unknown[]) => void>>();
   const sentStates: DesktopUpdateState[] = [];
   const installSteps: string[] = [];
@@ -69,7 +71,10 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
       }),
     setAutoDownload: () => Effect.void,
     setAutoInstallOnAppQuit: () => Effect.void,
-    setChannel: () => Effect.void,
+    setChannel: (channel) =>
+      Effect.sync(() => {
+        channels.push(channel);
+      }),
     setAllowPrerelease: () => Effect.void,
     allowDowngrade: Effect.sync(() => allowDowngrade),
     setAllowDowngrade: (value) =>
@@ -150,7 +155,7 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
     appVersion: "1.2.3",
     appPath: "/repo",
     isPackaged: true,
-    resourcesPath: "/missing/resources",
+    resourcesPath: options.resourcesPath ?? "/missing/resources",
     runningUnderArm64Translation: false,
   }).pipe(
     Layer.provide(
@@ -227,6 +232,7 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
     installSteps,
     downloadCount: () => downloadCount,
     feedUrls: () => feedUrls,
+    channels: () => channels,
     fullChangelog: () => fullChangelog,
     listenerCount: () =>
       Array.from(listeners.values()).reduce(

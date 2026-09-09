@@ -365,6 +365,13 @@ export const make = Effect.gen(function* () {
     );
   });
 
+  const resolveConfiguredChannel = (requested: DesktopUpdateChannel) =>
+    Ref.get(appUpdateYmlConfigRef).pipe(
+      Effect.map((feed) =>
+        Option.isSome(feed) && isD3UpdateFeed(feed.value) ? d3Build.updateTrack.channel : requested,
+      ),
+    );
+
   const activeUpdateAction = Ref.get(activeUpdateActionRef);
 
   const tryStartUpdateAction = (action: UpdateAction): Effect.Effect<boolean> =>
@@ -893,8 +900,22 @@ export const make = Effect.gen(function* () {
       }
 
       const settings = yield* desktopSettings.get;
+      // Earlier D3 releases exposed the upstream Nightly option, but D3 publishes latest-mac.yml.
+      const channel = yield* resolveConfiguredChannel(settings.updateChannel);
+      if (channel !== settings.updateChannel) {
+        yield* desktopSettings.setUpdateChannel(channel).pipe(
+          Effect.catch((cause) =>
+            logUpdaterWarning(
+              "Could not save the repaired D3 update track; using it for this session",
+              {
+                cause,
+              },
+            ),
+          ),
+        );
+      }
       const enabled = yield* shouldEnableAutoUpdates;
-      yield* setState(createBaseUpdateState(settings.updateChannel, enabled, environment));
+      yield* setState(createBaseUpdateState(channel, enabled, environment));
       if (!enabled) {
         return;
       }
@@ -902,7 +923,7 @@ export const make = Effect.gen(function* () {
 
       yield* electronUpdater.setAutoDownload(false);
       yield* electronUpdater.setAutoInstallOnAppQuit(false);
-      yield* applyAutoUpdaterChannel(settings.updateChannel);
+      yield* applyAutoUpdaterChannel(channel);
       yield* electronUpdater.setDisableDifferentialDownload(
         isArm64HostRunningIntelBuild(environment.runtimeInfo),
       );
@@ -939,8 +960,9 @@ export const make = Effect.gen(function* () {
       yield* startUpdatePollers;
     }).pipe(Effect.withSpan("desktop.updates.configure")),
     setChannel: Effect.fn("desktop.updates.setChannel")(function* (
-      nextChannel: DesktopUpdateChannel,
+      requestedChannel: DesktopUpdateChannel,
     ) {
+      const nextChannel = yield* resolveConfiguredChannel(requestedChannel);
       yield* Effect.annotateCurrentSpan({ channel: nextChannel });
       const activeAction = yield* tryStartChannelChange;
       if (Option.isSome(activeAction)) {

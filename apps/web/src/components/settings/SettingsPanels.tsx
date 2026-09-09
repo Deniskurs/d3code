@@ -1,4 +1,5 @@
 import { Spinner } from "~/components/ui/spinner";
+import { d3Build } from "@t3tools/shared/d3Build";
 import { ArchiveIcon, ArchiveX, ChevronRightIcon, SettingsIcon } from "lucide-react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { CSSProperties, ReactNode } from "react";
@@ -416,12 +417,12 @@ function AboutVersionSection() {
       {hasDesktopBridge ? (
         <SettingsRow
           title="Update track"
-          description="Use stable releases or nightly builds. Switch back anytime."
+          description="Get D3 Code (Devis) releases, including tested nightly improvements."
           control={
             <Select
               value={selectedUpdateChannel}
               onValueChange={(value) => {
-                handleUpdateChannelChange(value as DesktopUpdateChannel);
+                if (value === d3Build.updateTrack.channel) handleUpdateChannelChange(value);
               }}
             >
               <SelectTrigger
@@ -431,15 +432,14 @@ function AboutVersionSection() {
                 disabled={isChangingUpdateChannel}
               >
                 <SelectValue>
-                  {selectedUpdateChannel === "nightly" ? "Nightly" : "Stable"}
+                  {selectedUpdateChannel === d3Build.updateTrack.channel
+                    ? d3Build.updateTrack.label
+                    : "Nightly (legacy)"}
                 </SelectValue>
               </SelectTrigger>
               <SelectPopup align="end" alignItemWithTrigger={false}>
-                <SelectItem hideIndicator value="latest">
-                  Stable
-                </SelectItem>
-                <SelectItem hideIndicator value="nightly">
-                  Nightly
+                <SelectItem hideIndicator value={d3Build.updateTrack.channel}>
+                  {d3Build.updateTrack.label}
                 </SelectItem>
               </SelectPopup>
             </Select>

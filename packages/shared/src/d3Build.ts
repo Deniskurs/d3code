@@ -6,4 +6,5 @@ export const d3Build = {
   supportsManagedService: false,
   upstreamTag: "v0.0.41-nightly.20260909.1439",
   repository: "Deniskurs/d3code",
+  updateTrack: { channel: "latest", label: "Devis" } as const,
 };
