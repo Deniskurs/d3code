@@ -4,7 +4,7 @@ import { useEnvironmentIdentificationMode } from "~/hooks/useSettings";
 import { cn } from "~/lib/utils";
 import { StageBackdropButtonArt, useSidebarStageBackdropVariant } from "../SidebarStageBackdrop";
 import { Button } from "../ui/button";
-import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
+import { Menu, MenuItem, MenuPopup, MenuTrigger, MenuRadioGroup, MenuRadioItem } from "../ui/menu";
 import { Spinner } from "../ui/spinner";
 import { composerFloatingLayerProps } from "./composerEventScope";
 
@@ -33,6 +33,8 @@ interface ComposerPrimaryActionsProps {
    * be the only primary action and a running turn could not be steered. */
   showSendWhileRunning?: boolean;
   sendActionLabel?: string | undefined;
+  deliveryMode?: "steer" | "queue" | undefined;
+  onDeliveryModeChange?: ((mode: "steer" | "queue") => void) | undefined;
   onPreviousPendingQuestion: () => void;
   onInterrupt: () => void;
   onImplementPlanInNewThread: () => void;
@@ -75,6 +77,8 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   preserveComposerFocusOnPointerDown = false,
   showSendWhileRunning = false,
   sendActionLabel,
+  deliveryMode,
+  onDeliveryModeChange,
   onPreviousPendingQuestion,
   onInterrupt,
   onImplementPlanInNewThread,
@@ -275,14 +279,52 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
     </button>
   );
 
+  const sendActions = onDeliveryModeChange ? (
+    <div className="flex items-center gap-0.5">
+      <Menu>
+        <MenuTrigger
+          render={
+            <Button
+              type="button"
+              size="icon-xs"
+              variant="ghost"
+              aria-label="Choose message delivery"
+              disabled={isSendBusy || isConnecting || isEnvironmentUnavailable}
+            />
+          }
+        >
+          <ChevronDownIcon className="size-3.5" />
+        </MenuTrigger>
+        <MenuPopup align="end" side="top" {...composerFloatingLayerProps}>
+          <MenuRadioGroup
+            value={deliveryMode}
+            onValueChange={(value) => {
+              if (value === "steer" || value === "queue") onDeliveryModeChange(value);
+            }}
+          >
+            <MenuRadioItem closeOnClick value="steer">
+              Steer current task
+            </MenuRadioItem>
+            <MenuRadioItem closeOnClick value="queue">
+              Queue after task
+            </MenuRadioItem>
+          </MenuRadioGroup>
+        </MenuPopup>
+      </Menu>
+      {sendButton}
+    </div>
+  ) : (
+    sendButton
+  );
+
   if (!isRunning) {
-    return sendButton;
+    return sendActions;
   }
 
   return (
     <>
       {renderStopGenerationButton(false)}
-      {showSendWhileRunning && hasSendableContent ? sendButton : null}
+      {showSendWhileRunning && hasSendableContent ? sendActions : null}
     </>
   );
 });

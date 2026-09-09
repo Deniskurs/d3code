@@ -8430,46 +8430,20 @@ export default function ChatView(props: ChatViewProps) {
                     <ComposerSurface.Shell contextStrip={showComposerContextStrip}>
                       <ComposerSurface.Host>
                         <div ref={attachDraftHeroComposerAnchorRef} className="relative z-10">
-                          {activeThread ? (
-                            <OutboxPanel
-                              environmentId={environmentId}
-                              threadId={activeThread.id}
-                              working={isWorking}
-                            />
-                          ) : null}
-                          {selectedProvider === "omp" &&
-                          (isWorking || ompDeliveryMode === "queue") ? (
-                            <div className="flex flex-wrap items-center gap-2 px-3 py-2 text-xs">
-                              <div
-                                role="group"
-                                aria-label="Message delivery"
-                                className="inline-flex rounded-lg bg-muted p-0.5"
-                              >
-                                {(["steer", "queue"] as const).map((mode) => (
-                                  <button
-                                    key={mode}
-                                    type="button"
-                                    aria-pressed={ompDeliveryMode === mode}
-                                    className={cn(
-                                      "rounded-md px-3 py-1.5 font-medium",
-                                      ompDeliveryMode === mode
-                                        ? "bg-background text-foreground shadow-sm"
-                                        : "text-muted-foreground hover:text-foreground",
-                                    )}
-                                    onClick={() => setOmpDeliveryMode(mode)}
-                                  >
-                                    {mode === "steer" ? "Steer" : "Queue"}
-                                  </button>
-                                ))}
-                              </div>
-                              <span className="text-muted-foreground">
-                                {ompDeliveryMode === "steer"
-                                  ? "Redirect at the next message boundary"
-                                  : "After the current task, in order"}
-                              </span>
-                            </div>
-                          ) : null}
                           <ChatComposer
+                            queuePanel={
+                              activeThread ? (
+                                <OutboxPanel
+                                  key={routeThreadKey}
+                                  environmentId={environmentId}
+                                  threadId={activeThread.id}
+                                />
+                              ) : undefined
+                            }
+                            deliveryMode={selectedProvider === "omp" ? ompDeliveryMode : undefined}
+                            onDeliveryModeChange={
+                              selectedProvider === "omp" ? setOmpDeliveryMode : undefined
+                            }
                             sendActionLabel={
                               selectedProvider === "omp" &&
                               (isWorking || ompDeliveryMode === "queue")

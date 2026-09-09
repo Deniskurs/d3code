@@ -105,6 +105,14 @@ describe("device outbox delivery", () => {
     });
     expect(() => editOutboxMessage({ ...message, status: "editing" }, "  ")).toThrow();
   });
+  it("keeps a deliberately paused queue paused after editing", () => {
+    const edited = editOutboxMessage(
+      { ...message, status: "editing", editingFrom: "paused" },
+      "Updated",
+    );
+    expect(edited.status).toBe("paused");
+    expect(state(edited)).toBe("paused");
+  });
   it("does not dispatch to an archived or missing thread", () => {
     expect(state(message, { ...ready, archivedAt: "2026-09-09T10:00:00.000Z" })).toBe(
       "unavailable",

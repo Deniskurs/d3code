@@ -1,13 +1,27 @@
 import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import {
+  ArrowUpIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
+  InfoIcon,
+  ListOrderedIcon,
+  MoreHorizontalIcon,
+  PaperclipIcon,
+  PauseIcon,
+  XIcon,
+} from "lucide-react";
+import { useId, useState } from "react";
+import { ComposerBanner } from "../components/chat/ComposerBanner";
+import { Button } from "../components/ui/button";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../components/ui/menu";
+import { Textarea } from "../components/ui/textarea";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../components/ui/tooltip";
 import { useEnvironment } from "../state/environments";
 import { useThreadShell } from "../state/entities";
 import { environmentShell } from "../state/shell";
-import { outboxDeliveryState } from "./model";
-import { useState } from "react";
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
-import { Button } from "../components/ui/button";
-import { editOutboxMessage, type OutboxMessage } from "./model";
+import { editOutboxMessage, outboxDeliveryState, type OutboxMessage } from "./model";
 import { mutateOutbox, useOutbox } from "./store";
 
 function OutboxRow({
@@ -35,142 +49,213 @@ function OutboxRow({
       setBusy(false);
     }
   }
-  const editable =
-    message.status === "waiting" || message.status === "paused" || message.status === "editing";
+  const editable = message.status === "waiting" || message.status === "paused";
+  const attachments = message.localAttachments ?? message.input.message.attachments;
+  const status =
+    message.status === "sending"
+      ? "Submitting"
+      : message.status === "failed"
+        ? "Needs attention"
+        : message.status === "editing"
+          ? "Editing"
+          : delivery === "offline"
+            ? "Offline"
+            : delivery === "unavailable"
+              ? "Unavailable"
+              : delivery === "paused"
+                ? "Paused"
+                : null;
+  const edit = () => {
+    setText(message.input.message.text);
+    void change((current) => ({
+      ...current,
+      status: "editing",
+      editingFrom: current.status === "paused" ? "paused" : "waiting",
+    }));
+  };
   return (
-    <li className="space-y-2 border-t border-border/60 py-2.5 first:border-t-0">
-      <div className="flex items-start gap-2">
-        <span className="min-w-0 flex-1 whitespace-pre-wrap break-words text-sm line-clamp-3">
-          {message.input.message.text}
-        </span>
-        <span className="shrink-0 text-xs text-muted-foreground" role="status">
-          {message.status === "sending"
-            ? "Submitting..."
-            : message.status === "submitted"
-              ? "Submitted"
-              : message.status === "failed"
-                ? "Needs attention"
-                : message.status === "editing"
-                  ? "Paused for editing"
-                  : delivery === "offline"
-                    ? "Waiting for connection"
-                    : delivery === "unavailable"
-                      ? "Thread unavailable"
-                      : delivery === "paused"
-                        ? "Paused"
-                        : "Waiting"}
-        </span>
-      </div>
-      {(message.localAttachments ?? message.input.message.attachments).length > 0 ? (
-        <p className="text-xs text-muted-foreground">
-          {(message.localAttachments ?? message.input.message.attachments)
-            .map((attachment) => attachment.name)
-            .join(", ")}
-        </p>
-      ) : null}
-      {message.status === "editing" ? (
-        <>
-          <textarea
-            aria-label="Edit queued message"
-            className="min-h-24 w-full rounded-md border border-input bg-background p-2 text-sm"
-            value={text}
-            onChange={(event) => setText(event.target.value)}
-          />
-          <div className="flex gap-1">
-            <Button
-              size="xs"
-              disabled={busy}
-              onClick={() => void change((current) => editOutboxMessage(current, text))}
+    <li>
+      <ComposerBanner.Row className="rounded-md hover:bg-foreground/3">
+        <ComposerBanner.Icon>
+          {status === "Paused" ? <PauseIcon /> : <ChevronRightIcon />}
+        </ComposerBanner.Icon>
+        <ComposerBanner.Content>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 truncate text-left outline-none focus-visible:underline disabled:cursor-default"
+                  disabled={!editable || busy}
+                  onClick={edit}
+                />
+              }
             >
-              Save
-            </Button>
-            <Button
-              size="xs"
-              variant="ghost"
-              disabled={busy}
-              onClick={() => void change((current) => ({ ...current, status: "waiting" }))}
-            >
-              Cancel edit
-            </Button>
-          </div>
-        </>
-      ) : (
-        <div className="flex flex-wrap gap-1">
+              {message.input.message.text || "Attached files"}
+            </TooltipTrigger>
+            <TooltipPopup className="max-w-sm whitespace-pre-wrap break-words">
+              {message.input.message.text || "Attached files"}
+            </TooltipPopup>
+          </Tooltip>
+          {attachments.length > 0 ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span
+                    tabIndex={0}
+                    className="inline-flex shrink-0 items-center gap-0.5 text-muted-foreground"
+                    aria-label={`${attachments.length} attachments`}
+                  />
+                }
+              >
+                <PaperclipIcon className="size-3" />
+                {attachments.length}
+              </TooltipTrigger>
+              <TooltipPopup>
+                {attachments.map((attachment) => attachment.name).join(", ")}
+              </TooltipPopup>
+            </Tooltip>
+          ) : null}
+        </ComposerBanner.Content>
+        <ComposerBanner.Actions className="flex-nowrap">
+          {status ? (
+            <span role="status" className="text-[11px] text-muted-foreground">
+              {status}
+            </span>
+          ) : null}
           {editable ? (
             <>
-              <Button
-                size="xs"
-                variant="ghost"
-                disabled={busy}
-                onClick={() => {
-                  setText(message.input.message.text);
-                  void change((current) => ({ ...current, status: "editing" }));
-                }}
-              >
-                Edit
-              </Button>
-              <Button
-                size="xs"
-                variant="ghost"
-                disabled={busy}
-                onClick={() =>
-                  void change((current) => ({ ...current, status: "waiting", sendNow: true }))
-                }
-              >
-                Send now
-              </Button>
-              <Button
-                size="xs"
-                variant="ghost"
-                disabled={busy}
-                onClick={() =>
-                  void change((current) => ({
-                    ...current,
-                    status: current.status === "paused" ? "waiting" : "paused",
-                  }))
-                }
-              >
-                {message.status === "paused" ? "Resume queue" : "Pause queue"}
-              </Button>
-              <Button
-                size="xs"
-                variant="ghost"
-                disabled={busy}
-                onClick={() => void change(() => undefined)}
-              >
-                Remove
-              </Button>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      size="icon-xs"
+                      variant="ghost"
+                      disabled={busy}
+                      aria-label="Send queued message now"
+                      onClick={() =>
+                        void change((current) => ({ ...current, status: "waiting", sendNow: true }))
+                      }
+                    />
+                  }
+                >
+                  <ArrowUpIcon className="size-3.5" />
+                </TooltipTrigger>
+                <TooltipPopup>Send now at OMP's next message boundary</TooltipPopup>
+              </Tooltip>
+              <Menu>
+                <MenuTrigger
+                  render={
+                    <Button
+                      type="button"
+                      size="icon-xs"
+                      variant="ghost"
+                      disabled={busy}
+                      aria-label="Queued message actions"
+                    />
+                  }
+                >
+                  <MoreHorizontalIcon className="size-3.5" />
+                </MenuTrigger>
+                <MenuPopup align="end">
+                  <MenuItem onClick={edit}>Edit message</MenuItem>
+                  <MenuItem
+                    onClick={() =>
+                      void change((current) => ({
+                        ...current,
+                        status: current.status === "paused" ? "waiting" : "paused",
+                      }))
+                    }
+                  >
+                    {message.status === "paused" ? "Resume from here" : "Pause from here"}
+                  </MenuItem>
+                  <MenuItem onClick={() => void change(() => undefined)}>
+                    Remove from queue
+                  </MenuItem>
+                </MenuPopup>
+              </Menu>
             </>
           ) : null}
           {message.status === "failed" ? (
             <>
               <Button
+                type="button"
                 size="xs"
-                variant="outline"
+                variant="ghost"
                 disabled={busy}
                 onClick={() =>
                   void change((current) => ({ ...current, status: "sending", error: undefined }))
                 }
               >
-                Retry delivery
+                Retry
               </Button>
-              <Button
-                size="xs"
-                variant="ghost"
-                disabled={busy}
-                onClick={() => void change(() => undefined)}
-              >
-                Stop retrying
-              </Button>
-              <span className="self-center text-xs text-muted-foreground">
-                Removing this entry does not cancel a task already received by OMP.
-              </span>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      size="icon-xs"
+                      variant="ghost"
+                      disabled={busy}
+                      aria-label="Stop retrying this message"
+                      onClick={() => void change(() => undefined)}
+                    />
+                  }
+                >
+                  <XIcon className="size-3.5" />
+                </TooltipTrigger>
+                <TooltipPopup>
+                  Remove from this queue. Does not cancel a task already received by OMP.
+                </TooltipPopup>
+              </Tooltip>
             </>
           ) : null}
+        </ComposerBanner.Actions>
+      </ComposerBanner.Row>
+      {message.status === "editing" ? (
+        <div className="space-y-2 px-3 pb-2 pt-1">
+          <Textarea
+            aria-label="Edit queued message"
+            size="sm"
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            onKeyDown={(event) => {
+              event.stopPropagation();
+              if (event.key === "Escape") {
+                event.preventDefault();
+                void change((current) => ({
+                  ...current,
+                  status: current.editingFrom ?? "waiting",
+                }));
+              }
+            }}
+          />
+          <div className="flex justify-end gap-1">
+            <Button
+              type="button"
+              size="xs"
+              variant="ghost"
+              disabled={busy}
+              onClick={() =>
+                void change((current) => ({ ...current, status: current.editingFrom ?? "waiting" }))
+              }
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="xs"
+              disabled={busy}
+              onClick={() => void change((current) => editOutboxMessage(current, text))}
+            >
+              Save message
+            </Button>
+          </div>
         </div>
-      )}
+      ) : null}
       {message.error || error ? (
-        <p role="alert" className="text-xs text-destructive">
+        <p role="alert" className="px-3 pb-2 text-xs text-destructive">
           {error ?? message.error}
         </p>
       ) : null}
@@ -181,47 +266,85 @@ function OutboxRow({
 export function OutboxPanel({
   environmentId,
   threadId,
-  working,
 }: {
   environmentId: EnvironmentId;
   threadId: ThreadId;
-  working: boolean;
 }) {
   const messages = useOutbox().filter(
-    (message) => message.environmentId === environmentId && message.input.threadId === threadId,
+    (message) =>
+      message.environmentId === environmentId &&
+      message.input.threadId === threadId &&
+      message.status !== "submitted",
   );
   const environment = useEnvironment(environmentId);
   const shell = useAtomValue(environmentShell.stateValueAtom(environmentId));
   const thread = useThreadShell(scopeThreadRef(environmentId, threadId));
+  const [expanded, setExpanded] = useState(true);
+  const listId = useId();
   if (messages.length === 0) return null;
   return (
-    <section
-      aria-label="Queued messages"
-      className="mx-2 mb-2 rounded-lg border border-border bg-muted/30 px-3 py-2"
-    >
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="text-xs font-medium">Queue ({messages.length})</h3>
-        <span className="text-xs text-muted-foreground">Saved on this device</span>
-      </div>
-      <p className="mt-1 text-xs text-muted-foreground">
-        {working
-          ? "Runs in order after this task. Send now steers OMP at its next message boundary."
-          : "Sends when connected and ready. After a stopped or failed task, use Send now to continue."}
-      </p>
-      <ul className="max-h-64 overflow-y-auto">
-        {messages.map((message) => (
-          <OutboxRow
-            key={message.id}
-            message={message}
-            delivery={outboxDeliveryState(
-              message,
-              thread ?? undefined,
-              environment?.connection.phase === "connected",
-              shell.status === "live",
-            )}
-          />
-        ))}
-      </ul>
-    </section>
+    <ComposerBanner.Attachment data-chat-composer-collapsed-controls="true">
+      <ComposerBanner.Root aria-label="Queued messages">
+        <ComposerBanner.Row>
+          <ComposerBanner.Icon>
+            <ListOrderedIcon />
+          </ComposerBanner.Icon>
+          <ComposerBanner.Content>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-expanded={expanded}
+              aria-controls={listId}
+              onClick={() => setExpanded((value) => !value)}
+            >
+              Queued <ComposerBanner.Count>{messages.length}</ComposerBanner.Count>
+              {expanded ? (
+                <ChevronDownIcon className="size-3" />
+              ) : (
+                <ChevronRightIcon className="size-3" />
+              )}
+            </button>
+          </ComposerBanner.Content>
+          <ComposerBanner.Actions>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    size="icon-xs"
+                    variant="ghost"
+                    aria-label="About queued messages"
+                  />
+                }
+              >
+                <InfoIcon className="size-3" />
+              </TooltipTrigger>
+              <TooltipPopup className="max-w-64">
+                Saved on this device. Messages run in order while D3 is open and connected. Delivery
+                pauses for approvals, stopped tasks, and errors.
+              </TooltipPopup>
+            </Tooltip>
+          </ComposerBanner.Actions>
+        </ComposerBanner.Row>
+        {expanded ? (
+          <ComposerBanner.Scroll>
+            <ComposerBanner.Children render={<ul />} id={listId} aria-label="Queued prompts">
+              {messages.map((message) => (
+                <OutboxRow
+                  key={message.id}
+                  message={message}
+                  delivery={outboxDeliveryState(
+                    message,
+                    thread ?? undefined,
+                    environment?.connection.phase === "connected",
+                    shell.status === "live",
+                  )}
+                />
+              ))}
+            </ComposerBanner.Children>
+          </ComposerBanner.Scroll>
+        ) : null}
+      </ComposerBanner.Root>
+    </ComposerBanner.Attachment>
   );
 }

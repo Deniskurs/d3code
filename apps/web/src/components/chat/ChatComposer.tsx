@@ -1136,6 +1136,8 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
   preserveComposerFocusOnPointerDown?: boolean;
   showSendWhileRunning?: boolean;
   sendActionLabel?: string | undefined;
+  deliveryMode?: "steer" | "queue" | undefined;
+  onDeliveryModeChange?: ((mode: "steer" | "queue") => void) | undefined;
   onPreviousPendingQuestion: () => void;
   onInterrupt: () => void;
   onImplementPlanInNewThread: () => void;
@@ -1171,6 +1173,8 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
         preserveComposerFocusOnPointerDown={props.preserveComposerFocusOnPointerDown ?? false}
         showSendWhileRunning={props.showSendWhileRunning ?? false}
         sendActionLabel={props.sendActionLabel}
+        deliveryMode={props.deliveryMode}
+        onDeliveryModeChange={props.onDeliveryModeChange}
         onPreviousPendingQuestion={props.onPreviousPendingQuestion}
         onInterrupt={props.onInterrupt}
         onImplementPlanInNewThread={props.onImplementPlanInNewThread}
@@ -1355,8 +1359,12 @@ export interface ChatComposerProps {
   onPageScrollKeyUp: (key: string) => void;
   onPageScrollRelease: () => void;
 
+  queuePanel?: React.ReactNode;
+
   // Callbacks
   sendActionLabel?: string | undefined;
+  deliveryMode?: "steer" | "queue" | undefined;
+  onDeliveryModeChange?: ((mode: "steer" | "queue") => void) | undefined;
   onSend: (e?: { preventDefault: () => void }, intent?: ComposerSubmissionIntent) => void;
   onInterrupt: () => void;
   onImplementPlanInNewThread: () => void;
@@ -5005,6 +5013,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         : null}
       <ComposerBanner.Dock>
         <ComposerBanner.Column>
+          {props.queuePanel}
           <ComposerBannerStack
             key={activeThreadId}
             className="relative z-0"
@@ -5874,6 +5883,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     preserveComposerFocusOnPointerDown={isMobileViewport || isComposerResting}
                     showSendWhileRunning
                     sendActionLabel={props.sendActionLabel}
+                    deliveryMode={props.deliveryMode}
+                    onDeliveryModeChange={props.onDeliveryModeChange}
                     onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
                     onInterrupt={handleInterruptPrimaryAction}
                     onImplementPlanInNewThread={handleImplementPlanInNewThreadPrimaryAction}

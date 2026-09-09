@@ -11,6 +11,7 @@ export interface OutboxMessage {
   readonly error?: string | undefined;
   readonly localAttachments?: readonly (ComposerImageAttachment | ComposerFileAttachment)[];
   readonly prepared?: boolean;
+  readonly editingFrom?: "waiting" | "paused";
   readonly sendNow?: boolean;
 }
 
@@ -65,7 +66,7 @@ export function editOutboxMessage(message: OutboxMessage, text: string): OutboxM
   }
   return {
     ...message,
-    status: "waiting",
+    status: message.editingFrom ?? "waiting",
     input: {
       ...message.input,
       message: { ...message.input.message, text },

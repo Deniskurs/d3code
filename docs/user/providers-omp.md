@@ -19,13 +19,19 @@ You can send another message while OMP is working. In the web or desktop compose
 - **Steer** to redirect the running task at OMP's next message or tool boundary. It does not stop the current model response instantly.
 - **Queue** to save a follow-up until the current task finishes. The send button uses the same label, and Enter follows the selected mode.
 
-The queue appears above the composer. You can edit or remove unsent messages, pause and resume delivery, or choose **Send now** to steer with a queued message. Delivery pauses after a stopped or failed task and while OMP needs an approval or answer. Use **Send now** when you are ready to continue after a failure.
+The queue is attached to the composer. You can edit or remove unsent messages, pause and resume delivery from a chosen message, or choose **Send now** to steer with a queued message. Delivery pauses after a stopped or failed task and while OMP needs an approval or answer. Use **Send now** when you are ready to continue after a failure.
 
 Queued messages and their attachments are saved on the device where you queued them. Keep D3 open to deliver them; reopening it resumes the queue after reconnecting. Switching conversations does not stop delivery. The queue is not shared with another device or the native mobile client. A file restored from an older draft may need reattaching before it can be saved in the queue.
 
 Messages become read-only once submission starts. If delivery cannot be confirmed, **Retry delivery** reuses the original message ID to avoid a duplicate. **Submitted** means the server accepted the command; the conversation shows the response when OMP processes it.
 
 Other clients default to steering when sending to a running OMP session. If an OMP installation cannot load D3's steering extension, messages fall back to waiting for the current turn.
+
+## Resume a conversation
+
+Open the same D3 thread and send your next message. D3 saves the OMP session reference with that thread. After D3 or its server restarts, it loads that OMP session again using the saved workspace and provider instance. You do not need to copy the resume command printed by OMP's terminal UI.
+
+OMP owns the underlying session files. Keep the same OMP profile and its session data when continuing a thread. If that data is missing or the saved reference is invalid, resuming reports an error; the visible D3 history remains available. Create a new thread when you want a fresh session.
 
 ## Models and profiles
 

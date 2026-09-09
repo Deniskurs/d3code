@@ -466,6 +466,14 @@ export function makeOmpAdapter(ompSettings: OmpSettings, options?: OmpAdapterLiv
             let ctx!: OmpSessionContext;
 
             const resumeSessionId = parseOmpResume(input.resumeCursor)?.sessionId;
+            if (input.resumeCursor != null && !resumeSessionId) {
+              return yield* new ProviderAdapterValidationError({
+                provider: PROVIDER,
+                operation: "startSession",
+                issue:
+                  "The saved OMP session reference is invalid. Start a new thread to begin a new session; this thread's history has been kept.",
+              });
+            }
             const acpNativeLoggers = makeAcpNativeLoggers({
               nativeEventLogger,
               provider: PROVIDER,

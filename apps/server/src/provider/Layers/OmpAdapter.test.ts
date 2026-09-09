@@ -1076,6 +1076,66 @@ ompAdapterTestLayer("OmpAdapterLive", (it) => {
     }),
   );
 
+  it.effect("rejects invalid saved resume state instead of starting an empty session", () =>
+    Effect.gen(function* () {
+      const adapter = yield* OmpAdapter;
+      for (const resumeCursor of [
+        { schemaVersion: 999, sessionId: "old-session" },
+        { schemaVersion: 1, sessionId: "" },
+      ]) {
+        const result = yield* adapter
+          .startSession({
+            threadId: ThreadId.make("omp-invalid-resume"),
+            provider: ProviderDriverKind.make("omp"),
+            cwd: process.cwd(),
+            runtimeMode: "full-access",
+            resumeCursor,
+          })
+          .pipe(Effect.result);
+        assert.equal(result._tag, "Failure");
+        if (result._tag === "Failure")
+          assert.include(result.failure.message, "saved OMP session reference is invalid");
+        assert.equal(yield* adapter.hasSession(ThreadId.make("omp-invalid-resume")), false);
+      }
+    }),
+  );
+
+  it.effect(
+    "preserves a failed session load as an error instead of falling back to a new session",
+    () =>
+      Effect.gen(function* () {
+        const adapter = yield* OmpAdapter;
+        const settings = yield* ServerSettingsService;
+        const wrapperPath = yield* Effect.promise(() =>
+          makeMockAgentWrapper({ T3_ACP_FAIL_LOAD_SESSION: "1" }),
+        );
+        yield* settings.updateSettings({
+          providers: { omp: { binaryPath: wrapperPath, enabled: true } },
+        });
+        const threadId = ThreadId.make("omp-missing-session");
+        const started = yield* adapter.startSession({
+          threadId,
+          provider: ProviderDriverKind.make("omp"),
+          cwd: process.cwd(),
+          runtimeMode: "full-access",
+        });
+        yield* adapter.stopSession(threadId);
+        const result = yield* adapter
+          .startSession({
+            threadId,
+            provider: ProviderDriverKind.make("omp"),
+            cwd: process.cwd(),
+            runtimeMode: "full-access",
+            resumeCursor: started.resumeCursor,
+          })
+          .pipe(Effect.result);
+        assert.equal(result._tag, "Failure");
+        if (result._tag === "Failure")
+          assert.include(result.failure.message, "Mock load session failure");
+        assert.equal(yield* adapter.hasSession(threadId), false);
+      }),
+  );
+
   it.effect("loads an OMP ACP session from its resume cursor", () =>
     Effect.gen(function* () {
       const adapter = yield* OmpAdapter;
