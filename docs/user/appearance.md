@@ -15,10 +15,12 @@ of the selected theme.
 
 ## Motion
 
-The main sidebar, right panel, and terminal drawer open and close immediately by default. Move the
-**Panel animations** slider above 0 ms to add motion, up to 400 ms, unless reduced motion is enabled
-in your operating system. Moving between threads always snaps to the selected thread's panel state
-without replaying its transitions.
+On web and desktop, **Panel animations** defaults to 250 ms. Adjust the slider under
+**Settings → Appearance → Motion** from 0 to 400 ms; choose 0 ms to disable motion. Existing saved
+preferences are kept, and reduced motion in your operating system disables these transitions.
+
+Menus, tab content, and closing panels use shorter transitions to stay responsive. Moving between
+threads restores the selected thread's panel state without replaying its opening and closing motion.
 
 ## Custom themes
 

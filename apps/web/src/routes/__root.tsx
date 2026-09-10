@@ -42,6 +42,7 @@ import { resolveAndPersistPreferredEditor } from "../editorPreferences";
 import { applyAppearanceFontVariables } from "~/appearanceFonts";
 import { applyAppearanceContrast } from "~/appearanceContrast";
 import { useClientSettings } from "../hooks/useSettings";
+import { PanelAnimationDurationProvider } from "../panelAnimations";
 import { PlanAgentSelectionHeal } from "../planAgentSelectionHeal";
 import {
   deriveLogicalProjectKeyFromSettings,
@@ -102,12 +103,21 @@ export const Route = createRootRoute({
       authGateState,
     };
   },
-  component: RootRouteView,
+  component: RootRouteWithMotion,
   errorComponent: RootRouteErrorView,
   head: () => ({
     meta: [{ name: "title", content: "Code (Devis)" }],
   }),
 });
+
+function RootRouteWithMotion() {
+  const durationMs = useClientSettings((settings) => settings.panelAnimationDurationMs);
+  return (
+    <PanelAnimationDurationProvider value={durationMs}>
+      <RootRouteView />
+    </PanelAnimationDurationProvider>
+  );
+}
 
 function RootRouteView() {
   const pathname = useLocation({ select: (location) => location.pathname });

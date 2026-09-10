@@ -35,6 +35,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -65,12 +66,17 @@ import { useTheme } from "~/hooks/useTheme";
 import { pullRequestEnvironment } from "~/state/pullRequests";
 import { useEnvironmentQuery } from "~/state/query";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
+import { usePanelAnimationSettings } from "~/panelAnimations";
 
 import { PreviewPanelShell, type PreviewPanelMode } from "./preview/PreviewPanelShell";
 import { FaviconImage } from "./preview/PreviewFaviconIcon";
 import { previewBridge } from "./preview/previewBridge";
 import { PierreEntryIcon } from "./chat/PierreEntryIcon";
 import { resolvePullRequestState } from "./pullRequest/pullRequestPresentation";
+import {
+  createRightPanelTabMotion,
+  type RightPanelTabMotionController,
+} from "./RightPanelTabs.motion";
 
 interface RightPanelTabsProps {
   mode: PreviewPanelMode;
@@ -811,6 +817,35 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
   const browserProfiles = useBrowserDefaults().profiles;
   const { resolvedTheme } = useTheme();
   const tabListRef = useRef<HTMLDivElement>(null);
+  const tabRowRef = useRef<HTMLDivElement>(null);
+  const tabIndicatorRef = useRef<HTMLDivElement>(null);
+  const surfaceContentRef = useRef<HTMLDivElement>(null);
+  const tabMotionRef = useRef<RightPanelTabMotionController | null>(null);
+  const { active: motionActive, durationMs } = usePanelAnimationSettings();
+  const motionDurationMs = motionActive && props.open !== false ? durationMs : 0;
+  const tabIds = JSON.stringify(props.surfaces.map((surface) => surface.id));
+  const nativeContent =
+    isElectron &&
+    props.surfaces.some(
+      (surface) => surface.id === props.activeSurfaceId && surface.kind === "preview",
+    );
+
+  useLayoutEffect(() => {
+    const row = tabRowRef.current;
+    const indicator = tabIndicatorRef.current;
+    const content = surfaceContentRef.current;
+    if (!row || !indicator || !content) return;
+    const motion = createRightPanelTabMotion(row, indicator, content);
+    tabMotionRef.current = motion;
+    return () => {
+      motion.dispose();
+      tabMotionRef.current = null;
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    tabMotionRef.current?.update(props.activeSurfaceId, motionDurationMs, nativeContent);
+  }, [props.activeSurfaceId, motionDurationMs, nativeContent, tabIds]);
   const [addSurfaceMenuOpen, setAddSurfaceMenuOpen] = useState(false);
   const [tabScrollState, setTabScrollState] = useState({
     hasOverflow: false,
@@ -839,15 +874,17 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     });
   }, []);
 
-  const scrollTabs = useCallback((direction: -1 | 1) => {
-    const viewport = tabScrollViewport(tabListRef.current);
-    if (!viewport) return;
-    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    viewport.scrollBy({
-      left: direction * Math.max(120, viewport.clientWidth * 0.75),
-      behavior: reduceMotion ? "auto" : "smooth",
-    });
-  }, []);
+  const scrollTabs = useCallback(
+    (direction: -1 | 1) => {
+      const viewport = tabScrollViewport(tabListRef.current);
+      if (!viewport) return;
+      viewport.scrollBy({
+        left: direction * Math.max(120, viewport.clientWidth * 0.75),
+        behavior: motionDurationMs > 0 && !document.hidden ? "smooth" : "auto",
+      });
+    },
+    [motionDurationMs],
+  );
 
   const addSurfaceActions = [
     {
@@ -1032,9 +1069,16 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     if (!viewport) return;
 
     const content = viewport.firstElementChild;
-    const resizeObserver = new ResizeObserver(updateTabScrollState);
+    const resizeObserver = new ResizeObserver(() => {
+      updateTabScrollState();
+      tabMotionRef.current?.measure();
+    });
     resizeObserver.observe(viewport);
     if (content) resizeObserver.observe(content);
+    // Observe only tab chrome: streaming surface content never requests measurement.
+    for (const tab of tabRowRef.current?.querySelectorAll("[data-active-tab]") ?? []) {
+      resizeObserver.observe(tab);
+    }
     viewport.addEventListener("scroll", updateTabScrollState, { passive: true });
     updateTabScrollState();
 
@@ -1042,7 +1086,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       resizeObserver.disconnect();
       viewport.removeEventListener("scroll", updateTabScrollState);
     };
-  }, [updateTabScrollState]);
+  }, [updateTabScrollState, tabIds]);
 
   useEffect(() => {
     const viewport = tabScrollViewport(tabListRef.current);
@@ -1097,7 +1141,15 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
           className="min-w-0 flex-1 rounded-none"
           data-right-panel-tab-list
         >
-          <div className="flex h-full w-max min-w-full items-center gap-1">
+          <div
+            ref={tabRowRef}
+            className="relative isolate flex h-full w-max min-w-full items-center gap-1"
+          >
+            <div
+              ref={tabIndicatorRef}
+              aria-hidden
+              className="pointer-events-none invisible absolute top-0 left-0 origin-top-left rounded-md bg-accent"
+            />
             {props.surfaces.map((surface) => {
               const active = surface.id === props.activeSurfaceId;
               const pending = props.pendingSurfaceIds.has(surface.id);
@@ -1119,10 +1171,10 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                   onAuxClick={(event) => handleTabAuxClick(event, surface)}
                   onContextMenu={(event) => void handleTabContextMenu(event, surface)}
                   className={cn(
-                    "cursor-pointer group/tab flex h-6 max-w-36 shrink-0 items-center gap-0.5 rounded-md pr-2 pl-1.5 text-xs",
+                    "cursor-pointer relative group/tab flex h-6 max-w-36 shrink-0 items-center gap-0.5 rounded-md pr-2 pl-1.5 text-xs",
                     ownsDesktopTitleBar && "[-webkit-app-region:no-drag]",
                     active
-                      ? "bg-accent text-foreground"
+                      ? "text-foreground"
                       : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
                   )}
                 >
@@ -1332,7 +1384,11 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
           />
         ) : null}
       </div>
-      <div className="flex min-h-0 flex-1 flex-col" data-right-panel-surface-content>
+      <div
+        ref={surfaceContentRef}
+        className="flex min-h-0 flex-1 flex-col"
+        data-right-panel-surface-content
+      >
         {props.activeSurfaceId === null ? (
           <RightPanelEmptyState
             onAddBrowser={props.onAddBrowser}

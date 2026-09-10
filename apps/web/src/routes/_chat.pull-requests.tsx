@@ -1820,16 +1820,7 @@ function PullRequestsRouteView() {
       !pullRequestsSupported ? null : (
         <span
           aria-hidden
-          className={cn(
-            "shrink-0",
-            rightPanelState.isOpen ? "-ml-3 w-0" : "w-7 sm:w-5",
-            panelAnimationsActive && "transition-[width,margin] ease-out",
-          )}
-          style={
-            panelAnimationsActive
-              ? { transitionDuration: `${panelAnimationDurationMs}ms` }
-              : undefined
-          }
+          className={cn("shrink-0", rightPanelState.isOpen ? "-ml-3 w-0" : "w-7 sm:w-5")}
         />
       ),
     titlebarControls:

@@ -82,7 +82,7 @@ function SettingsContentLayout() {
           </div>
         </WorkspacePageHeader>
 
-        <div key={restoreSignal} className="min-h-0 flex flex-1 flex-col">
+        <div key={restoreSignal} className="settings-route-content min-h-0 flex flex-1 flex-col">
           <Outlet />
         </div>
       </div>

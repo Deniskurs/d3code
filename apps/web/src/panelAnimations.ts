@@ -1,8 +1,42 @@
-import { createContext, useContext, useEffect, useRef, useState } from "react";
-import { type PanelAnimationDurationMs } from "@t3tools/contracts/settings";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import {
+  DEFAULT_CLIENT_SETTINGS,
+  type PanelAnimationDurationMs,
+} from "@t3tools/contracts/settings";
 
 import { useMediaQuery } from "./hooks/useMediaQuery";
-import { useClientSettings } from "./hooks/useSettings";
+
+export const PANEL_MOTION_EASING = "cubic-bezier(0.22, 1, 0.36, 1)";
+
+export function getPanelMotionDuration(
+  durationMs: number,
+  phase: "enter" | "exit" | "content",
+): number {
+  if (phase === "exit") return Math.round(durationMs * 0.72);
+  return phase === "content" ? Math.min(durationMs, 150) : durationMs;
+}
+
+function isDocumentVisible(): boolean {
+  return typeof document === "undefined" || !document.hidden;
+}
+
+function subscribeToDocumentVisibility(onChange: () => void): () => void {
+  if (typeof document === "undefined") return () => {};
+  document.addEventListener("visibilitychange", onChange);
+  return () => document.removeEventListener("visibilitychange", onChange);
+}
+
+const PanelAnimationDurationContext = createContext(
+  DEFAULT_CLIENT_SETTINGS.panelAnimationDurationMs,
+);
+export const PanelAnimationDurationProvider = PanelAnimationDurationContext.Provider;
 
 const PanelAnimationSuppressionContext = createContext(false);
 
@@ -39,7 +73,8 @@ export function observeResponsiveBreakpointFade(options: {
   breakpoint: { value: number; unit: "px" | "rem" };
 }): () => void {
   const { target, container, active, durationMs, breakpoint } = options;
-  if (!active || typeof ResizeObserver === "undefined") return () => {};
+  if (!active || typeof ResizeObserver === "undefined" || typeof target.animate !== "function")
+    return () => {};
 
   const rootFontSize = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
   const breakpointPx =
@@ -55,10 +90,19 @@ export function observeResponsiveBreakpointFade(options: {
     if (nextExpanded === expanded) return;
     expanded = nextExpanded;
     animation?.cancel();
-    animation = target.animate([{ opacity: 0 }, { opacity: 1 }], {
+    if (target.ownerDocument.hidden) return;
+    const nextAnimation = target.animate([{ opacity: 0 }, { opacity: 1 }], {
       duration: Math.min(100, durationMs),
-      easing: "ease-out",
+      easing: PANEL_MOTION_EASING,
     });
+    animation = nextAnimation;
+    const release = () => {
+      if (animation === nextAnimation) animation = null;
+      nextAnimation.removeEventListener("finish", release);
+      nextAnimation.removeEventListener("cancel", release);
+    };
+    nextAnimation.addEventListener("finish", release, { once: true });
+    nextAnimation.addEventListener("cancel", release, { once: true });
   });
 
   observer.observe(container);
@@ -72,13 +116,18 @@ export function usePanelAnimationSettings(): {
   active: boolean;
   durationMs: PanelAnimationDurationMs;
 } {
-  const durationMs = useClientSettings((settings) => settings.panelAnimationDurationMs);
+  const durationMs = useContext(PanelAnimationDurationContext);
   const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
+  const visible = useSyncExternalStore(
+    subscribeToDocumentVisibility,
+    isDocumentVisible,
+    () => true,
+  );
   const suppressed = useContext(PanelAnimationSuppressionContext);
-  return { active: durationMs > 0 && !prefersReducedMotion && !suppressed, durationMs };
+  return { active: durationMs > 0 && !prefersReducedMotion && !suppressed && visible, durationMs };
 }
 
-/** Keeps closing panel content mounted until its opt-in transition ends. */
+/** Keeps closing panel content mounted only for its exit transition. */
 export function usePanelPresence<T>(
   open: boolean,
   value: T | null,
@@ -100,17 +149,33 @@ export function usePanelPresence<T>(
       setPresent(true);
       return;
     }
-    if (!animated) {
+    if (
+      !animated ||
+      durationMs === 0 ||
+      !present ||
+      retainedRef.current?.scopeKey !== scopeKey ||
+      !isDocumentVisible()
+    ) {
       setPresent(false);
       return;
     }
 
-    const timeout = window.setTimeout(() => setPresent(false), durationMs);
-    return () => window.clearTimeout(timeout);
-  }, [animated, durationMs, open]);
+    const unsubscribe = subscribeToDocumentVisibility(() => {
+      if (!isDocumentVisible()) setPresent(false);
+    });
+    const timeout = window.setTimeout(
+      () => setPresent(false),
+      getPanelMotionDuration(durationMs, "exit"),
+    );
+    return () => {
+      window.clearTimeout(timeout);
+      unsubscribe();
+    };
+  }, [animated, durationMs, open, present, scopeKey]);
 
   const retainedValue =
     retainedRef.current?.scopeKey === scopeKey ? retainedRef.current.value : null;
-  const visible = open || (animated && present && retainedRef.current?.scopeKey === scopeKey);
+  const visible =
+    open || (animated && durationMs > 0 && present && retainedRef.current?.scopeKey === scopeKey);
   return { present: visible, value: open ? value : visible ? retainedValue : null };
 }

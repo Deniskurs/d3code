@@ -5,6 +5,11 @@ import { CheckIcon, ChevronRightIcon } from "lucide-react";
 import type * as React from "react";
 
 import { cn } from "~/lib/utils";
+import {
+  getPanelMotionDuration,
+  PANEL_MOTION_EASING,
+  usePanelAnimationSettings,
+} from "~/panelAnimations";
 
 const MenuCreateHandle = MenuPrimitive.createHandle;
 
@@ -28,6 +33,7 @@ function MenuPopup({
   alignOffset,
   side = "bottom",
   anchor,
+  style,
   ...props
 }: MenuPrimitive.Popup.Props & {
   align?: MenuPrimitive.Positioner.Props["align"];
@@ -36,6 +42,13 @@ function MenuPopup({
   side?: MenuPrimitive.Positioner.Props["side"];
   anchor?: MenuPrimitive.Positioner.Props["anchor"];
 }) {
+  const { active, durationMs } = usePanelAnimationSettings();
+  const contentDurationMs = getPanelMotionDuration(active ? durationMs : 0, "content");
+  const motionStyle = {
+    "--popup-motion-duration": `${contentDurationMs}ms`,
+    "--popup-motion-exit-duration": `${getPanelMotionDuration(contentDurationMs, "exit")}ms`,
+    "--popup-motion-easing": PANEL_MOTION_EASING,
+  } as React.CSSProperties;
   const hasExplicitWidthClass =
     typeof className === "string" &&
     className.split(/\s+/).some((classToken) => {
@@ -55,12 +68,20 @@ function MenuPopup({
         sideOffset={sideOffset}
       >
         <MenuPrimitive.Popup
-          className={cn(
-            "dropdown-glass relative flex origin-(--transform-origin) rounded-lg shadow-[0_16px_40px_-18px_rgb(0_0_0/55%)] outline-none focus:outline-none dark:shadow-[0_18px_44px_-18px_rgb(0_0_0/80%)]",
-            !hasExplicitWidthClass && "min-w-32",
-            className,
-          )}
+          className={(state) =>
+            cn(
+              "dropdown-glass relative flex origin-(--transform-origin) rounded-lg shadow-[0_16px_40px_-18px_rgb(0_0_0/55%)] outline-none transition-[scale,opacity] duration-(--popup-motion-duration) ease-(--popup-motion-easing) data-starting-style:scale-98 data-starting-style:opacity-0 data-ending-style:scale-98 data-ending-style:opacity-0 data-ending-style:duration-(--popup-motion-exit-duration) focus:outline-none dark:shadow-[0_18px_44px_-18px_rgb(0_0_0/80%)]",
+              !active &&
+                "transition-none! data-starting-style:scale-100! data-starting-style:opacity-100! data-ending-style:scale-100! data-ending-style:opacity-100!",
+              !hasExplicitWidthClass && "min-w-32",
+              typeof className === "function" ? className(state) : className,
+            )
+          }
           data-slot="menu-popup"
+          style={(state) => ({
+            ...motionStyle,
+            ...(typeof style === "function" ? style(state) : style),
+          })}
           {...props}
         >
           <div className="max-h-(--available-height) w-full overflow-y-auto p-1">{children}</div>
@@ -124,7 +145,7 @@ function MenuCheckboxItem({
             className="inset-shadow-[0_1px_--theme(--color-black/4%)] inline-flex h-[calc(var(--thumb-size)+2px)] w-[calc(var(--thumb-size)*2-2px)] shrink-0 items-center rounded-full p-px outline-none transition-[background-color,box-shadow] duration-200 [--thumb-size:--spacing(4)] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background data-checked:bg-primary data-unchecked:bg-input data-disabled:opacity-64 sm:[--thumb-size:--spacing(3)]"
             keepMounted
           >
-            <span className="pointer-events-none block aspect-square h-full in-[[data-slot=menu-checkbox-item][data-checked]]:origin-[var(--thumb-size)_50%] origin-left in-[[data-slot=menu-checkbox-item][data-checked]]:translate-x-[calc(var(--thumb-size)-4px)] in-[[data-slot=menu-checkbox-item]:active]:not-data-disabled:scale-x-110 in-[[data-slot=menu-checkbox-item]:active]:rounded-[var(--thumb-size)/calc(var(--thumb-size)*1.10)] rounded-(--thumb-size) bg-background shadow-sm/5 will-change-transform [transition:translate_.15s,border-radius_.15s,scale_.1s_.1s,transform-origin_.15s]" />
+            <span className="pointer-events-none block aspect-square h-full in-[[data-slot=menu-checkbox-item][data-checked]]:origin-[var(--thumb-size)_50%] origin-left in-[[data-slot=menu-checkbox-item][data-checked]]:translate-x-[calc(var(--thumb-size)-4px)] in-[[data-slot=menu-checkbox-item]:active]:not-data-disabled:scale-x-110 in-[[data-slot=menu-checkbox-item]:active]:rounded-[var(--thumb-size)/calc(var(--thumb-size)*1.10)] rounded-(--thumb-size) bg-background shadow-sm/5 [transition:translate_.15s,border-radius_.15s,scale_.1s_.1s,transform-origin_.15s]" />
           </MenuPrimitive.CheckboxItemIndicator>
         </>
       ) : (

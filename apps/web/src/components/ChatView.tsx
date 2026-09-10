@@ -1150,15 +1150,17 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
 
   return (
     <div
-      className={cn(
-        "grid shrink-0 overflow-clip",
-        active ? (visible ? "grid-rows-[1fr]" : "grid-rows-[0fr]") : "hidden",
-        active &&
-          "[[data-panel-animations=true]_&]:transition-[grid-template-rows] [[data-panel-animations=true]_&]:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:ease-out",
-        active && visible && "[[data-panel-animations=true]_&]:starting:grid-rows-[0fr]!",
-      )}
+      className={cn("relative shrink-0", active ? !visible && "h-0" : "hidden")}
+      inert={!visible}
     >
-      <div className="min-h-0 overflow-clip">
+      <div
+        className={cn(
+          "min-h-0 overflow-clip motion-safe:transition-[translate,opacity] motion-safe:[transition-timing-function:var(--panel-animation-easing,ease-out)]",
+          visible
+            ? "relative opacity-100 motion-safe:[transition-duration:var(--panel-animation-duration,0ms)] [[data-panel-animations=true]_&]:motion-safe:starting:translate-y-2 [[data-panel-animations=true]_&]:motion-safe:starting:opacity-0"
+            : "absolute inset-x-0 bottom-0 z-10 translate-y-2 opacity-0 pointer-events-none motion-safe:[transition-duration:var(--panel-animation-exit-duration,0ms)]",
+        )}
+      >
         <ThreadTerminalDrawer
           threadRef={threadRef}
           threadId={threadId}

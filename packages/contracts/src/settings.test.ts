@@ -355,8 +355,9 @@ describe("ClientSettings appearance contrast", () => {
 });
 
 describe("ClientSettings panel animations", () => {
-  it("defaults to instant changes", () => {
-    expect(decodeClientSettings({}).panelAnimationDurationMs).toBe(0);
+  it("defaults missing motion preferences without overwriting a saved choice", () => {
+    expect(decodeClientSettings({}).panelAnimationDurationMs).toBe(250);
+    expect(decodeClientSettings({ panelAnimationDurationMs: 0 }).panelAnimationDurationMs).toBe(0);
   });
 
   it.each([0, 400])("accepts a panel animation duration: %s", (value) => {

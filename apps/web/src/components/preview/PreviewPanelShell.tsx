@@ -80,75 +80,50 @@ export function PreviewPanelShell(props: {
     maxWidth,
     edge: "left",
   });
-  // Derive suppression before the layout commits so the browser never creates
-  // a width transition for resize or maximize changes.
-  const [layoutTransition, setLayoutTransition] = useState(() => ({
-    open,
-    width,
-    maximized,
-    suppressed: false,
-  }));
-  if (
-    layoutTransition.open !== open ||
-    layoutTransition.width !== width ||
-    layoutTransition.maximized !== maximized
-  ) {
-    setLayoutTransition({
-      open,
-      width,
-      maximized,
-      suppressed:
-        collapsible &&
-        layoutTransition.open === open &&
-        (layoutTransition.width !== width || layoutTransition.maximized !== maximized),
-    });
-  }
-  const suppressWidthTransition = layoutTransition.suppressed;
+  // The flex slot commits its final width once. Keep the closing shell at its
+  // last painted width, outside layout, while presence finishes its fade.
+  const [retainedWidth, setRetainedWidth] = useState(width);
   useLayoutEffect(() => {
-    if (!suppressWidthTransition) return;
-    let restoreFrame = 0;
-    const paintFrame = window.requestAnimationFrame(() => {
-      restoreFrame = window.requestAnimationFrame(() => {
-        setLayoutTransition((current) => ({ ...current, suppressed: false }));
-      });
-    });
-    return () => {
-      window.cancelAnimationFrame(paintFrame);
-      window.cancelAnimationFrame(restoreFrame);
-    };
-  }, [suppressWidthTransition]);
+    if (!open || !collapsible) return;
+    const host = hostRef.current;
+    if (host) setRetainedWidth(host.getBoundingClientRect().width);
+  }, [collapsible, open, width, maxWidth, maximized]);
   return (
     <div
       ref={hostRef}
       className={cn(
-        "relative flex h-full min-h-0 min-w-0 max-w-full flex-col self-stretch bg-background",
-        isInline
-          ? maximized
-            ? "flex-1 border-l border-border"
-            : "shrink-0 border-l border-border"
-          : "w-full",
-        collapsible &&
-          "[[data-panel-animations=true]_&]:transition-[width] [[data-panel-animations=true]_&]:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:ease-out",
-        collapsible && open && "[[data-panel-animations=true]_&]:starting:w-0!",
+        "relative flex h-full min-h-0 min-w-0 max-w-full flex-col self-stretch",
+        isInline ? (maximized && open ? "flex-1" : "shrink-0") : "w-full",
         collapsible && !open && "pointer-events-none",
       )}
       style={
         isInline
           ? {
-              width: maximized ? "100%" : collapsible && !open ? "0px" : `${width}px`,
-              transitionDuration: suppressWidthTransition ? "0ms" : undefined,
+              width: collapsible && !open ? "0px" : maximized ? "100%" : `${width}px`,
             }
           : undefined
       }
       data-preview-panel-mode={props.mode}
       data-preview-panel-maximized={maximized ? "true" : "false"}
+      inert={collapsible && !open}
     >
       {isInline && !maximized ? <RightPanelResizeHandle handlers={handlers} /> : null}
-      <div className={cn("h-full min-h-0 w-full", collapsible && "overflow-clip")}>
-        <div
-          className="flex h-full min-h-0 min-w-0 flex-col"
-          style={collapsible && !maximized ? { width: `calc(${width}px - 1px)` } : undefined}
-        >
+      <div
+        className={cn(
+          "relative flex h-full min-h-0 w-full flex-col bg-background",
+          isInline && "border-l border-border",
+          collapsible &&
+            "overflow-clip motion-safe:transition-opacity motion-safe:[transition-timing-function:var(--panel-animation-easing,ease-out)]",
+          collapsible &&
+            open &&
+            "opacity-100 motion-safe:[transition-duration:var(--panel-animation-duration,0ms)] [[data-panel-animations=true]_&]:motion-safe:starting:opacity-0",
+          collapsible &&
+            !open &&
+            "absolute inset-y-0 right-0 z-10 opacity-0 motion-safe:[transition-duration:var(--panel-animation-exit-duration,0ms)]",
+        )}
+        style={collapsible && !open ? { width: `${retainedWidth}px` } : undefined}
+      >
+        <div className="flex h-full min-h-0 min-w-0 flex-col">
           {useDragRegion ? <div className="electron-drag-region h-0 w-full" aria-hidden /> : null}
           {props.children}
         </div>
