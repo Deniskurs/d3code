@@ -1,22 +1,18 @@
 // @effect-diagnostics nodeBuiltinImport:off globalConsole:off - Standalone artifact tooling uses Node file APIs without a server runtime.
 import * as NodeFSP from "node:fs/promises";
 import * as NodeURL from "node:url";
+import sharp from "sharp";
 import { encodePngIco, WINDOWS_ICON_SIZES } from "./lib/icon-export.ts";
 
-import sharp from "sharp";
 const root = NodeURL.fileURLToPath(new URL("../", import.meta.url));
 const check = process.argv.includes("--check");
-const variants = [
-  { name: "dev", color: "#55dcca", background: "#102c32", label: "DEV" },
-  { name: "nightly", color: "#b8a2ff", background: "#201a3b", label: "NIGHTLY" },
-  { name: "prod", color: "#ffbd59", background: "#171b22", label: "" },
-] as const;
-const mark = (color: string) =>
-  `<path d="M225 298H351C461 298 512 373 512 512S461 726 351 726H225V298ZM309 380V644H348C404 644 430 602 430 512S404 380 348 380H309Z" fill="${color}" fill-rule="evenodd"/><path d="M574 300H792V381L690 473C764 483 805 525 805 597C805 681 750 730 659 730C609 730 566 716 531 688L575 618C600 638 628 649 659 649C699 649 723 630 723 601C723 570 699 552 653 552H601V479L702 382H574V300Z" fill="${color === "white" ? "white" : "#f6f4ef"}"/>`;
-const svg = (body: string) =>
-  `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">${body}</svg>\n`;
-const png = (source: string, size: number) =>
-  sharp(Buffer.from(source)).resize(size, size).png().toBuffer();
+const variants = ["dev", "nightly", "prod"] as const;
+const background = "#fff7e5";
+const source = await NodeFSP.readFile(`${root}assets/devis/source.png`);
+const metadata = await sharp(source).metadata();
+if (!metadata.width || metadata.width !== metadata.height)
+  throw new Error("The Devis source artwork must be square.");
+
 async function output(path: string, data: string | Buffer) {
   const destination = `${root}${path}`;
   const bytes = Buffer.from(data);
@@ -34,64 +30,85 @@ async function output(path: string, data: string | Buffer) {
     await NodeFSP.writeFile(destination, bytes);
   }
 }
+const resize = (input: Buffer, size: number) => sharp(input).resize(size, size).png().toBuffer();
+const roundedMask = (size: number, radius: number) =>
+  Buffer.from(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}"><rect width="${size}" height="${size}" rx="${radius}" fill="white"/></svg>`,
+  );
+const icon = await resize(source, 1024);
+const framed = await sharp(icon)
+  .resize(824, 824)
+  .composite([{ input: roundedMask(824, 190), blend: "dest-in" }])
+  .png()
+  .toBuffer();
+const macIcon = await sharp({
+  create: { width: 1024, height: 1024, channels: 4, background: "#00000000" },
+})
+  .composite([{ input: framed, left: 100, top: 100 }])
+  .png()
+  .toBuffer();
+
+// Android and widget template icons need an alpha silhouette. Derive it from
+// this artwork's blue ink, keeping its original outline and texture.
+const { data, info } = await sharp(icon).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+const monochrome = Buffer.from(data);
+for (let offset = 0; offset < data.length; offset += 4) {
+  const alpha = Math.round(
+    Math.max(0, Math.min(1, (data[offset + 2]! - data[offset]!) / 64)) * 255,
+  );
+  data[offset + 3] = alpha;
+  monochrome[offset] = monochrome[offset + 1] = monochrome[offset + 2] = 255;
+  monochrome[offset + 3] = alpha;
+}
+const mark = await sharp(data, { raw: info }).png().toBuffer();
+const template = await sharp(monochrome, { raw: info }).png().toBuffer();
+const safeZone = async (input: Buffer) =>
+  sharp({ create: { width: 1024, height: 1024, channels: 4, background: "#00000000" } })
+    .composite([{ input: await resize(input, 640), left: 192, top: 192 }])
+    .png()
+    .toBuffer();
+const adaptiveMark = await safeZone(mark);
+const adaptiveTemplate = await safeZone(template);
+const backgroundPng = await sharp({
+  create: { width: 1024, height: 1024, channels: 4, background },
+})
+  .png()
+  .toBuffer();
+const splash = await sharp(backgroundPng)
+  .composite([{ input: adaptiveMark }])
+  .png()
+  .toBuffer();
+const ico = encodePngIco(
+  await Promise.all(
+    WINDOWS_ICON_SIZES.map(async (size) => ({ size, contents: await resize(icon, size) })),
+  ),
+);
+
 for (const variant of variants) {
-  const dir = `assets/devis/${variant.name}`;
-  const badge = variant.label
-    ? `<rect x="380" y="796" width="264" height="60" rx="30" fill="${variant.color}"/><text x="512" y="839" text-anchor="middle" font-family="Helvetica,sans-serif" font-size="38" font-weight="700" letter-spacing="4" fill="${variant.background}">${variant.label}</text>`
-    : "";
-  const body = `<rect x="100" y="100" width="824" height="824" rx="190" fill="${variant.background}"/>${mark(variant.color)}${badge}`;
-  const source = svg(body);
-  await output(`${dir}/icon.svg`, source);
+  const dir = `assets/devis/${variant}`;
+  await output(`${dir}/icon.png`, icon);
+  await output(`${dir}/mac-icon.png`, macIcon);
+  await output(`${dir}/icon.ico`, ico);
   for (const [filename, size] of [
-    ["icon.png", 1024],
     ["apple-touch.png", 180],
     ["favicon-16.png", 16],
     ["favicon-32.png", 32],
-  ] as const) {
-    await output(`${dir}/${filename}`, await png(source, size));
-  }
-  await output(
-    `${dir}/icon.ico`,
-    encodePngIco(
-      await Promise.all(
-        WINDOWS_ICON_SIZES.map(async (size) => ({ size, contents: await png(source, size) })),
-      ),
-    ),
-  );
-  await output(
-    `${dir}/background.png`,
-    await png(svg(`<rect width="1024" height="1024" fill="${variant.background}"/>`), 1024),
-  );
-  await output(
-    `${dir}/splash.png`,
-    await png(
-      svg(
-        `<rect width="1024" height="1024" fill="${variant.background}"/><g transform="translate(154 154) scale(.7)">${mark(variant.color)}</g>`,
-      ),
-      1024,
-    ),
-  );
-  await output(`${dir}/app-icon.icon/Assets/mark.svg`, svg(mark(variant.color)));
+  ] as const)
+    await output(`${dir}/${filename}`, await resize(icon, size));
+  await output(`${dir}/background.png`, backgroundPng);
+  await output(`${dir}/splash.png`, splash);
+  await output(`${dir}/app-icon.icon/Assets/mark.png`, mark);
   await output(
     `${dir}/app-icon.icon/icon.json`,
     JSON.stringify(
       {
-        fill: {
-          solid:
-            "display-p3:" +
-            [1, 3, 5]
-              .map((start) =>
-                (parseInt(variant.background.slice(start, start + 2), 16) / 255).toFixed(5),
-              )
-              .join(",") +
-            ",1.00000",
-        },
+        fill: { solid: "srgb:1.00000,0.96863,0.89804,1.00000" },
         groups: [
           {
             layers: [
               {
-                "image-name": "mark.svg",
-                name: "D3",
+                "image-name": "mark.png",
+                name: "Devis",
                 position: { scale: 1, "translation-in-points": [0, 0] },
               },
             ],
@@ -103,25 +120,21 @@ for (const variant of variants) {
       2,
     ) + "\n",
   );
-  if (variant.name === "dev") {
-    for (const [name, file] of [
-      ["favicon.ico", "icon.ico"],
-      ["favicon-16x16.png", "favicon-16.png"],
-      ["favicon-32x32.png", "favicon-32.png"],
-      ["apple-touch-icon.png", "apple-touch.png"],
-    ]) {
-      await output(`apps/web/public/${name}`, await NodeFSP.readFile(`${root}${dir}/${file}`));
-    }
-  }
 }
-await output(
-  "assets/devis/mark.png",
-  await png(svg(`<g transform="translate(154 154) scale(.7)">${mark("#ffbd59")}</g>`), 1024),
-);
-await output(
-  "assets/devis/monochrome.png",
-  await png(svg(`<g transform="translate(154 154) scale(.7)">${mark("white")}</g>`), 1024),
-);
-await output("assets/devis/notification.png", await png(svg(mark("white")), 96));
-await output("apps/mobile/assets/widget/T3Mark.svg", svg(mark("white")));
-console.log(check ? "D3 icon variants verified." : "D3 icon variants exported.");
+await output("assets/devis/brand.png", await resize(icon, 128));
+await output("assets/devis/mark.png", adaptiveMark);
+await output("assets/devis/monochrome.png", adaptiveTemplate);
+await output("assets/devis/notification.png", await resize(template, 96));
+await output("apps/mobile/assets/widget/T3Mark.png", await resize(template, 256));
+for (const directory of ["apps/web/public", "apps/marketing/public"]) {
+  await output(`${directory}/favicon.ico`, ico);
+  await output(`${directory}/favicon-16x16.png`, await resize(icon, 16));
+  await output(`${directory}/favicon-32x32.png`, await resize(icon, 32));
+  await output(`${directory}/apple-touch-icon.png`, await resize(icon, 180));
+}
+for (const name of ["icon.webp", "icon-nightly.webp"])
+  await output(
+    `apps/marketing/src/assets/${name}`,
+    await sharp(icon).resize(256).webp({ quality: 90 }).toBuffer(),
+  );
+console.log(check ? "Devis artwork exports verified." : "Devis artwork exported.");

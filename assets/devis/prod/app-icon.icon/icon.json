@@ -1,13 +1,13 @@
 {
   "fill": {
-    "solid": "display-p3:0.09020,0.10588,0.13333,1.00000"
+    "solid": "srgb:1.00000,0.96863,0.89804,1.00000"
   },
   "groups": [
     {
       "layers": [
         {
-          "image-name": "mark.svg",
-          "name": "D3",
+          "image-name": "mark.png",
+          "name": "Devis",
           "position": {
             "scale": 1,
             "translation-in-points": [0, 0]

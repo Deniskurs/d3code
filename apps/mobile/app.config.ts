@@ -19,8 +19,8 @@ const personalTeamBundleIdentifier = repoEnv.T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID?
 const IOS_BUNDLE_IDENTIFIER_PATTERN = /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
 
 const fromRepoRoot = (relativePath: string) => `../../${relativePath}`;
-// Android layers are rendered by scripts/export-android-icons.ts from the Icon Composer sources.
-// The wordmark sits inside the adaptive safe zone; the variant artwork is a full-bleed background.
+// Android layers are derived from the Devis artwork by scripts/export-devis-icons.ts.
+// The symbol sits inside the adaptive safe zone on the artwork's cream background.
 const androidAdaptiveForeground = fromRepoRoot("assets/devis/mark.png");
 
 if (
@@ -38,7 +38,7 @@ const DEVELOPMENT_ASSETS = {
   iosIcon: fromRepoRoot(BRAND_ASSET_PATHS.developmentIosIconPng),
   splashIcon: fromRepoRoot(BRAND_ASSET_PATHS.developmentIosIconPng),
   androidAdaptiveForeground,
-  androidAdaptiveBackgroundColor: "#347FF8",
+  androidAdaptiveBackgroundColor: "#fff7e5",
   androidAdaptiveBackgroundImage: fromRepoRoot("assets/devis/dev/background.png"),
   androidSplashIcon: fromRepoRoot("assets/devis/dev/splash.png"),
   androidMonochromeIcon: fromRepoRoot("assets/devis/monochrome.png"),
@@ -51,7 +51,7 @@ const PREVIEW_ASSETS = {
   iosIcon: fromRepoRoot(BRAND_ASSET_PATHS.nightlyIosIconPng),
   splashIcon: fromRepoRoot(BRAND_ASSET_PATHS.nightlyIosIconPng),
   androidAdaptiveForeground,
-  androidAdaptiveBackgroundColor: "#111533",
+  androidAdaptiveBackgroundColor: "#fff7e5",
   androidAdaptiveBackgroundImage: fromRepoRoot("assets/devis/nightly/background.png"),
   androidSplashIcon: fromRepoRoot("assets/devis/nightly/splash.png"),
   androidMonochromeIcon: fromRepoRoot("assets/devis/monochrome.png"),
@@ -64,8 +64,8 @@ const RELEASE_ASSETS = {
   iosIcon: fromRepoRoot(BRAND_ASSET_PATHS.productionIosIconPng),
   splashIcon: fromRepoRoot(BRAND_ASSET_PATHS.productionIosIconPng),
   androidAdaptiveForeground,
-  androidAdaptiveBackgroundColor: "#000000",
-  androidAdaptiveBackgroundImage: undefined,
+  androidAdaptiveBackgroundColor: "#fff7e5",
+  androidAdaptiveBackgroundImage: fromRepoRoot("assets/devis/prod/background.png"),
   androidSplashIcon: fromRepoRoot("assets/devis/prod/splash.png"),
   androidMonochromeIcon: fromRepoRoot("assets/devis/monochrome.png"),
   androidNotificationIcon: fromRepoRoot("assets/devis/notification.png"),

@@ -5,7 +5,7 @@ export const BRAND_ASSET_PATHS = {
 
   productionIconComposerProject: "assets/devis/prod/app-icon.icon",
   productionIosIconPng: "assets/devis/prod/icon.png",
-  productionMacIconPng: "assets/devis/prod/icon.png",
+  productionMacIconPng: "assets/devis/prod/mac-icon.png",
   productionLinuxIconPng: "assets/devis/prod/icon.png",
   productionWindowsIconIco: "assets/devis/prod/icon.ico",
   productionWebFaviconIco: "assets/devis/prod/icon.ico",
@@ -15,7 +15,7 @@ export const BRAND_ASSET_PATHS = {
 
   nightlyIconComposerProject: "assets/devis/nightly/app-icon.icon",
   nightlyIosIconPng: "assets/devis/nightly/icon.png",
-  nightlyMacIconPng: "assets/devis/nightly/icon.png",
+  nightlyMacIconPng: "assets/devis/nightly/mac-icon.png",
   nightlyLinuxIconPng: "assets/devis/nightly/icon.png",
   nightlyWindowsIconIco: "assets/devis/nightly/icon.ico",
   nightlyWebFaviconIco: "assets/devis/nightly/icon.ico",
@@ -23,7 +23,7 @@ export const BRAND_ASSET_PATHS = {
   nightlyWebFavicon32Png: "assets/devis/nightly/favicon-32.png",
   nightlyWebAppleTouchIconPng: "assets/devis/nightly/apple-touch.png",
 
-  developmentDesktopIconPng: "assets/devis/dev/icon.png",
+  developmentDesktopIconPng: "assets/devis/dev/mac-icon.png",
   developmentWindowsIconIco: "assets/devis/dev/icon.ico",
   developmentWebFaviconIco: "assets/devis/dev/icon.ico",
   developmentWebFavicon16Png: "assets/devis/dev/favicon-16.png",
