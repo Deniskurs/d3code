@@ -205,7 +205,7 @@ describe("theme files", () => {
       colors: {
         canvas: canonical("#07152f"),
         accent: canonical("#67c2ff"),
-        placeholder: canonical("#968d9f"),
+        placeholder: canonical("#a6b2cc"),
       },
     });
   });
@@ -382,35 +382,34 @@ describe("theme files", () => {
     });
   });
 
-  it("keeps the T3 Chat palette faithful and readable", () => {
+  it("keeps D3 Devis Special cream and blue with readable text", () => {
+    expect(T3_CHAT_THEME.label).toBe("D3 Devis Special");
     expectThemeColors(T3_CHAT_THEME.colors, {
-      canvas: "#fdf7fd",
-      chrome: "#fdf7fd",
-      toolbarBorder: "#efbdeb",
-      toolbarControl: "#f3e6f5",
-      toolbarControlHover: "#eccfe3",
-      surfaceRaised: "#fdfafd",
-      input: "#e7c1dc",
-      focus: "#db2777",
-      messageSurface: "#f7def2",
-      codeBackground: "#f5ecf9",
-      codeForeground: "#673c8b",
-      accentSurface: "#f3e6f5",
-      sidebar: "#f2e1f4",
+      canvas: "#fff8e8",
+      chrome: "#fbf2de",
+      surface: "#f9f2e4",
+      surfaceRaised: "#fffdf7",
+      focus: "#1648c6",
+      messageSurface: "#e8edf9",
+      codeBackground: "#eef0f5",
+      codeForeground: "#273f71",
+      accent: "#1648c6",
+      sidebar: "#f3ead7",
+      sidebarBorder: "#d9d4c7",
     });
     expectThemeColors(T3_CHAT_THEME.variants!.dark!, {
-      canvas: "#1f1a24",
-      chrome: "#1f1a24",
-      surface: "#29232d",
-      surfaceRaised: "#2c2631",
-      input: "#302029",
-      focus: "#db2777",
-      messageSurface: "#2b2431",
-      codeBackground: "#1f1a24",
-      sidebar: "#171018",
-      sidebarBorder: "#322028",
+      canvas: "#131f43",
+      chrome: "#101b3b",
+      surface: "#1b2c54",
+      surfaceRaised: "#22345f",
+      focus: "#abc6ff",
+      messageSurface: "#21376b",
+      codeBackground: "#0e1938",
+      codeForeground: "#e4d8bc",
+      accent: "#edd8a6",
+      sidebar: "#0e1938",
+      sidebarBorder: "#31446d",
     });
-
     for (const mode of ["light", "dark"] as const) {
       const colors = getThemeColorsForMode(T3_CHAT_THEME, mode)!;
       expect(contrastRatio(colors.text, colors.canvas)).toBeGreaterThanOrEqual(7);
