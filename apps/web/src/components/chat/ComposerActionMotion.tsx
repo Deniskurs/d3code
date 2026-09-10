@@ -1,42 +1,23 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useLayoutEffect,
-  useRef,
-  type ComponentProps,
-} from "react";
-import {
-  createComposerActionMotion,
-  type ComposerActionMotionController,
-} from "./ComposerPrimaryActions.motion";
+import { createContext, useContext, useLayoutEffect, useRef, type ComponentProps } from "react";
+import { createComposerActionMotion } from "./ComposerPrimaryActions.motion";
 
-const MotionContext = createContext<(() => void) | null>(null);
+const MotionContext = createContext(false);
 
 /** Nested primary actions join the footer's motion scope, including attachment. */
 export function ComposerActionMotion({ children, ...props }: ComponentProps<"div">) {
-  const parentUpdate = useContext(MotionContext);
+  const hasParentMotion = useContext(MotionContext);
   const host = useRef<HTMLDivElement>(null);
-  const controller = useRef<ComposerActionMotionController | null>(null);
-  const update = useCallback(() => controller.current?.update(), []);
 
   useLayoutEffect(() => {
-    if (parentUpdate || !host.current) return;
+    if (hasParentMotion || !host.current) return;
     const motion = createComposerActionMotion(host.current);
-    controller.current = motion;
     motion.update();
-    return () => {
-      motion.dispose();
-      controller.current = null;
-    };
-  }, [parentUpdate]);
-  useLayoutEffect(() => {
-    (parentUpdate ?? update)();
-  });
+    return () => motion.dispose();
+  }, [hasParentMotion]);
 
-  if (parentUpdate) return children;
+  if (hasParentMotion) return children;
   return (
-    <MotionContext value={update}>
+    <MotionContext value>
       <div {...props} ref={host} style={{ ...props.style, position: "relative" }}>
         {children}
       </div>

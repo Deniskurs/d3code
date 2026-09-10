@@ -79,6 +79,10 @@ export function createComposerActionMotion(parent: HTMLDivElement) {
   let disposed = false;
   const moving = new Map<HTMLElement, Motion>();
   const retired = new Map<HTMLElement, Animation>();
+  let updateQueued = false;
+  let mutationObserver: MutationObserver | null = null;
+  let resizeObserver: ResizeObserver | null = null;
+  const resizeTargets = new Set<Element>();
 
   const remaining = (node: HTMLElement) => {
     const motion = moving.get(node);
@@ -137,7 +141,7 @@ export function createComposerActionMotion(parent: HTMLDivElement) {
     animation.addEventListener("cancel", remove, { once: true });
   };
 
-  const update = () => {
+  function update() {
     if (disposed) return;
     const origin = parent.getBoundingClientRect();
     const next = new Map<string, Control>();
@@ -166,6 +170,7 @@ export function createComposerActionMotion(parent: HTMLDivElement) {
             : (node.cloneNode(true) as HTMLElement),
       });
     }
+    syncResizeTargets(next);
     if (!canAnimate) {
       settle();
       controls = next;
@@ -224,27 +229,98 @@ export function createComposerActionMotion(parent: HTMLDivElement) {
       if (next.get(key)?.node !== old.node) cancel(old.node);
     }
     controls = next;
+  }
+  function requestUpdate() {
+    if (disposed || updateQueued) return;
+    updateQueued = true;
+    const run = () => {
+      updateQueued = false;
+      update();
+    };
+    if (view?.queueMicrotask) view.queueMicrotask(run);
+    else globalThis.queueMicrotask(run);
+  }
+  function syncResizeTargets(next: Map<string, Control>) {
+    if (!resizeObserver) return;
+    const nextTargets = new Set<Element>([parent, ...[...next.values()].map(({ node }) => node)]);
+    for (const target of resizeTargets) {
+      if (nextTargets.has(target)) continue;
+      resizeObserver.unobserve(target);
+      resizeTargets.delete(target);
+    }
+    for (const target of nextTargets) {
+      if (resizeTargets.has(target)) continue;
+      resizeTargets.add(target);
+      resizeObserver.observe(target);
+    }
+  }
+  const actionSelector = "[data-composer-action]";
+  const isWithinAction = (node: Node) => {
+    const element = (node.nodeType === 1 ? node : node.parentElement) as Element | null;
+    return Boolean(element?.matches(actionSelector) || element?.closest(actionSelector));
   };
+  const containsAction = (node: Node) => {
+    const element = (node.nodeType === 1 ? node : node.parentElement) as Element | null;
+    return Boolean(
+      element?.matches(actionSelector) ||
+      element?.closest(actionSelector) ||
+      element?.querySelector(actionSelector),
+    );
+  };
+  const MutationObserverConstructor = view?.MutationObserver;
+  if (MutationObserverConstructor) {
+    mutationObserver = new MutationObserverConstructor((records) => {
+      const relevant = records.some((record) => {
+        if (record.type === "attributes") {
+          return record.target === parent || containsAction(record.target);
+        }
+        if (record.type === "characterData") return isWithinAction(record.target);
+        return (
+          isWithinAction(record.target) ||
+          [...record.addedNodes, ...record.removedNodes].some(containsAction)
+        );
+      });
+      if (relevant) requestUpdate();
+    });
+    mutationObserver.observe(parent, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: [
+        "class",
+        "style",
+        "hidden",
+        "disabled",
+        "data-composer-action",
+        "data-composer-action-version",
+      ],
+    });
+  }
+  const ResizeObserverConstructor = view?.ResizeObserver;
+  if (ResizeObserverConstructor) {
+    resizeObserver = new ResizeObserverConstructor(requestUpdate);
+  }
   const reset = () => {
     settle();
     controls = null;
     update();
   };
-  const onVisibilityChange = () => {
-    reset();
-  };
   reducedMotion?.addEventListener("change", reset);
-  document.addEventListener("visibilitychange", onVisibilityChange);
-  view?.addEventListener("resize", reset);
+  document.addEventListener("visibilitychange", reset);
+  view?.addEventListener("resize", requestUpdate);
   return {
     update,
     dispose() {
+      mutationObserver?.disconnect();
+      resizeObserver?.disconnect();
+      resizeTargets.clear();
       disposed = true;
       settle();
       controls = null;
       reducedMotion?.removeEventListener("change", reset);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-      view?.removeEventListener("resize", reset);
+      document.removeEventListener("visibilitychange", reset);
+      view?.removeEventListener("resize", requestUpdate);
     },
   };
 }
