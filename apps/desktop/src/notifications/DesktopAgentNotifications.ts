@@ -58,15 +58,19 @@ export const make = Effect.gen(function* () {
   };
 
   const clear = () => {
-    detachOwner?.();
+    const detach = detachOwner;
     detachOwner = undefined;
     owner = undefined;
+    detach?.();
     for (const [id, entry] of entries) retire(id, entry);
   };
 
   const bindOwner = (window: Electron.BrowserWindow) => {
     if (owner === window) return;
     clear();
+    // BrowserWindow.webContents throws once its native window is destroyed.
+    // Retain the emitter now so shutdown can detach listeners without that getter.
+    const webContents = window.webContents;
     owner = window;
     const onNavigation = (
       event: Electron.Event<Electron.WebContentsDidStartNavigationEventParams>,
@@ -74,14 +78,14 @@ export const make = Effect.gen(function* () {
       if (event.isMainFrame && !event.isSameDocument) clear();
     };
     window.on("closed", clear);
-    window.webContents.on("destroyed", clear);
-    window.webContents.on("render-process-gone", clear);
-    window.webContents.on("did-start-navigation", onNavigation);
+    webContents.on("destroyed", clear);
+    webContents.on("render-process-gone", clear);
+    webContents.on("did-start-navigation", onNavigation);
     detachOwner = () => {
       window.removeListener("closed", clear);
-      window.webContents.removeListener("destroyed", clear);
-      window.webContents.removeListener("render-process-gone", clear);
-      window.webContents.removeListener("did-start-navigation", onNavigation);
+      webContents.removeListener("destroyed", clear);
+      webContents.removeListener("render-process-gone", clear);
+      webContents.removeListener("did-start-navigation", onNavigation);
     };
   };
 

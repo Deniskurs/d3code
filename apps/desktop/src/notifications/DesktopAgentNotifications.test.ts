@@ -63,7 +63,6 @@ function makeWindow() {
   });
   const window = Object.assign(new NodeEvents.EventEmitter(), {
     id: 1,
-    webContents,
     isDestroyed: () => state.destroyed,
     isMinimized: () => state.minimized,
     isVisible: () => state.visible,
@@ -75,6 +74,12 @@ function makeWindow() {
     },
     focus: () => {
       state.focused = true;
+    },
+  });
+  Object.defineProperty(window, "webContents", {
+    get: () => {
+      if (state.destroyed) throw new TypeError("Object has been destroyed");
+      return webContents;
     },
   });
   return { window: window as unknown as Electron.BrowserWindow, state, webContents };
@@ -186,6 +191,32 @@ describe("DesktopAgentNotifications", () => {
       }),
     ),
   );
+
+  for (const shutdown of ["window closed", "web contents destroyed", "scope shutdown"] as const) {
+    it.effect(`releases notifications after native destruction during ${shutdown}`, () =>
+      Effect.gen(function* () {
+        const fixture = yield* withHarness((service, fixture) =>
+          Effect.gen(function* () {
+            yield* service.show(input, fixture.window);
+            fixture.state.destroyed = true;
+            if (shutdown === "window closed") fixture.window.emit("closed");
+            if (shutdown === "web contents destroyed") fixture.webContents.emit("destroyed");
+            return fixture;
+          }),
+        );
+        const notification = electronMocks.notifications[0]!;
+        // Window, renderer, and scope teardown may all attempt cleanup.
+        fixture.window.emit("closed");
+        fixture.webContents.emit("destroyed");
+        notification.emit("click");
+        assert.equal(vi.mocked(notification.close).mock.calls.length, 1);
+        assert.deepEqual(notification.eventNames(), []);
+        assert.deepEqual(fixture.window.eventNames(), []);
+        assert.deepEqual(fixture.webContents.eventNames(), []);
+        assert.equal(fixture.webContents.send.mock.calls.length, 0);
+      }),
+    );
+  }
 
   it.effect("closes alerts and removes owner listeners when its scope shuts down", () =>
     Effect.gen(function* () {
