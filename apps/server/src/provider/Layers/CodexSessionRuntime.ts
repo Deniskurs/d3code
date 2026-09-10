@@ -1,4 +1,9 @@
 import {
+  makeCodexComputerUseLifecycle,
+  CodexComputerUseCleanupError,
+  nativeComputerUseTurnEndedPayload,
+} from "./CodexComputerUseLifecycle.ts";
+import {
   ApprovalRequestId,
   DEFAULT_MODEL,
   EventId,
@@ -1757,8 +1762,54 @@ export const makeCodexSessionRuntime = (
         }
       });
 
+    const computerUseLifecycle = makeCodexComputerUseLifecycle({
+      client,
+      runNativeCleanup: (executable, turn) =>
+        Effect.gen(function* () {
+          const payload = nativeComputerUseTurnEndedPayload(turn);
+          const process = yield* spawner.spawn(
+            ChildProcess.make(executable, ["turn-ended", payload], {
+              cwd: options.cwd,
+              env,
+              extendEnv,
+              stdin: "ignore",
+              stdout: "ignore",
+              stderr: "ignore",
+              forceKillAfter: "1 second",
+            }),
+          );
+          const code = yield* process.exitCode;
+          if (code !== 0)
+            return yield* new CodexComputerUseCleanupError({
+              message: "Computer-use cleanup failed",
+            });
+        }).pipe(
+          Effect.scoped,
+          Effect.mapError(
+            () =>
+              new CodexComputerUseCleanupError({ message: "Native computer-use cleanup failed" }),
+          ),
+        ),
+      onWarning: (turn) =>
+        emitEvent({
+          kind: "notification",
+          threadId: options.threadId,
+          turnId: TurnId.make(turn.turnId),
+          method: "computerUse/cleanupFailed",
+          message:
+            "Computer-use cleanup could not be confirmed. If sharing remains active, stop it using your computer’s sharing controls. Update Codex and its computer-use plugin.",
+        }).pipe(Effect.ignore),
+    });
+
+    yield* Effect.addFinalizer(() => computerUseLifecycle.close);
+
     const handleRawNotification = (notification: CodexServerNotification) =>
       Effect.gen(function* () {
+        yield* computerUseLifecycle.observe(
+          notification.method,
+          notification.params,
+          currentProviderThreadId(yield* Ref.get(sessionRef)),
+        );
         const isMemoryConsolidationNotification =
           suppressMemoryConsolidationNotification(notification);
 
@@ -2311,6 +2362,7 @@ export const makeCodexSessionRuntime = (
       }
       yield* settlePendingApprovals("cancel");
       yield* settlePendingUserInputs({});
+      yield* computerUseLifecycle.close;
       yield* updateSession(sessionRef, {
         status: "closed",
         activeTurnId: undefined,

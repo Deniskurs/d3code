@@ -2124,6 +2124,16 @@ function mapToRuntimeEvents(
     ];
   }
 
+  if (event.method === "computerUse/cleanupFailed") {
+    return [
+      {
+        type: "runtime.warning",
+        ...runtimeEventBase(event, canonicalThreadId),
+        payload: { message: event.message ?? "Computer-use cleanup could not be confirmed." },
+      },
+    ];
+  }
+
   if (event.method === "process/stderr") {
     const message = event.message ?? "Codex process stderr";
     const isFatal = isFatalCodexProcessStderrMessage(message);

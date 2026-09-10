@@ -1291,6 +1291,29 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
     }),
   );
 
+  it.effect("shows computer-use cleanup failures as warnings", () =>
+    Effect.gen(function* () {
+      const { adapter, runtime } = yield* startLifecycleRuntime();
+      const event = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+      yield* runtime.emit({
+        id: asEventId("cleanup-warning"),
+        kind: "notification",
+        provider: ProviderDriverKind.make("codex"),
+        createdAt: "2026-01-01T00:00:00.000Z",
+        method: "computerUse/cleanupFailed",
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-1"),
+        message: "Computer-use cleanup could not be confirmed.",
+      });
+      const received = yield* Fiber.join(event);
+      NodeAssert.ok(Option.isSome(received));
+      NodeAssert.equal(received.value.type, "runtime.warning");
+      NodeAssert.deepEqual(received.value.payload, {
+        message: "Computer-use cleanup could not be confirmed.",
+      });
+    }),
+  );
+
   it.effect("presents browser and computer-use calls with Codex-style titles and sources", () =>
     Effect.gen(function* () {
       const { adapter, runtime } = yield* startLifecycleRuntime();

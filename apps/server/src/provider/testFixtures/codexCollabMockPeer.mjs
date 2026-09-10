@@ -61,6 +61,40 @@ rl.on("line", (line) => {
     write({ id, result: { account: { type: "apiKey" }, requiresOpenaiAuth: false } });
     return;
   }
+  if (method === "mcpServerStatus/list" && script.computerUseCleanup) {
+    write({
+      id,
+      result: {
+        data: script.computerUseCleanup.servers.map((name) => ({
+          name,
+          authStatus: "unsupported",
+          tools: script.computerUseCleanup.omitHook
+            ? {}
+            : { turn_ended: { name: "turn_ended", inputSchema: { type: "object" } } },
+          resources: [],
+          resourceTemplates: [],
+        })),
+        nextCursor: null,
+      },
+    });
+    return;
+  }
+  if (method === "config/read" && script.computerUseCleanup) {
+    write({
+      id,
+      result: { config: { notify: script.computerUseCleanup.notify ?? [] }, origins: {} },
+    });
+    return;
+  }
+  if (method === "mcpServer/tool/call" && script.computerUseCleanup) {
+    NodeFS.appendFileSync(
+      `${process.env.T3_CODEX_COLLAB_SCRIPT}.cleanup`,
+      `${JSON.stringify(message.params)}\n`,
+    );
+    if (script.computerUseCleanup.failHook) write({ id, result: { content: [], isError: true } });
+    else write({ id, result: { content: [] } });
+    return;
+  }
   if (method === "skills/list" || method === "model/list") {
     write({ id, result: { data: [] } });
     return;
