@@ -45,6 +45,7 @@ import {
   reconcileOmpHistory,
 } from "./ompSessionHistory.ts";
 import { createOmpSteering } from "./ompSteering.ts";
+import { findOmpSession } from "./ompSessionDiscovery.ts";
 
 const NativePage = Schema.Struct({
   sessions: Schema.Array(OmpSavedSession),
@@ -146,26 +147,10 @@ export const makeOmpSessions = Effect.gen(function* () {
       runtime
         .request("session/list", { cwd, ...(cursor ? { cursor } : {}) })
         .pipe(Effect.flatMap(decodePage));
-    const find = Effect.fn("OmpSessions.find")(function* (sessionId: string) {
-      let cursor: string | undefined;
-      const visited = new Set<string>();
-      for (let pageIndex = 0; pageIndex < 100; pageIndex++) {
-        const page = yield* runtime
-          .request("session/list", { ...(cursor ? { cursor } : {}) })
-          .pipe(Effect.flatMap(decodePage));
-        const found = page.sessions.find((entry) => entry.sessionId === sessionId);
-        if (found) {
-          yield* fs.realPath(found.cwd);
-          return found;
-        }
-        if (!page.nextCursor || visited.has(page.nextCursor)) break;
-        visited.add(page.nextCursor);
-        cursor = page.nextCursor;
-      }
-      return yield* fail(
-        "This OMP session was not found in this provider profile. Check the session ID and the selected OMP profile.",
-      );
-    });
+    const find = (sessionId: string) =>
+      findOmpSession(sessionId, (cursor) =>
+        runtime.request("session/list", cursor ? { cursor } : {}).pipe(Effect.flatMap(decodePage)),
+      ).pipe(Effect.tap((session) => fs.realPath(session.cwd)));
     const history = (sessionId: string, sessionCwd: string) =>
       runtime.request("session/load", { sessionId, cwd: sessionCwd, mcpServers: [] }).pipe(
         Effect.flatMap(decodeLoadedSession),
@@ -306,8 +291,7 @@ export const makeOmpSessions = Effect.gen(function* () {
                 commandId: CommandId.make(yield* crypto.randomUUIDv4),
                 projectId,
                 title:
-                  native.cwd.replaceAll("\\", "/").split("/").filter(Boolean).at(-1) ??
-                  "OMP sessions",
+                  native.cwd.replaceAll("\\", "/").split("/").findLast(Boolean) ?? "OMP sessions",
                 workspaceRoot: native.cwd,
                 defaultModelSelection: { instanceId: input.instanceId, model: nativeHistory.model },
                 createdAt: now,
