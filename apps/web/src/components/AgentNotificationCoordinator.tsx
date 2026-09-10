@@ -20,7 +20,11 @@ import { appAtomRegistry } from "../rpc/atomRegistry";
 import { readThreadShell } from "../state/entities";
 import { useEnvironments } from "../state/environments";
 import { environmentShell } from "../state/shell";
-import { buildThreadRouteParams, resolveThreadRouteTarget } from "../threadRoutes";
+import {
+  buildThreadRouteParams,
+  resolveActiveThreadRouteRef,
+  resolveThreadRouteTarget,
+} from "../threadRoutes";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 
 function EnvironmentAgentNotifications({ environmentId }: { environmentId: EnvironmentId }) {
@@ -31,13 +35,13 @@ function EnvironmentAgentNotifications({ environmentId }: { environmentId: Envir
   const draft = useComposerDraftStore((store) =>
     route?.kind === "draft" ? store.getDraftSession(route.draftId) : null,
   );
-  const activeRef = route?.kind === "server" ? route.threadRef : draft;
-  const isViewing = useEffectEvent(
+  const activeRef = resolveActiveThreadRouteRef(route, draft) ?? draft;
+  const isAppFocused = useEffectEvent(
+    () => document.visibilityState === "visible" && document.hasFocus(),
+  );
+  const isSelected = useEffectEvent(
     (ref: ScopedThreadRef) =>
-      document.visibilityState === "visible" &&
-      document.hasFocus() &&
-      activeRef?.environmentId === ref.environmentId &&
-      activeRef.threadId === ref.threadId,
+      activeRef?.environmentId === ref.environmentId && activeRef.threadId === ref.threadId,
   );
   const onOpen = useEffectEvent((ref: ScopedThreadRef) => {
     if (!readThreadShell(ref)) return;
@@ -49,7 +53,8 @@ function EnvironmentAgentNotifications({ environmentId }: { environmentId: Envir
     const tracker = createAgentNotificationTracker(environmentId);
     const delivery = createAgentNotificationDelivery({
       settings: getClientSettings,
-      isViewing,
+      isSelected,
+      isAppFocused,
       onOpen,
       showToast: (notification, open) => {
         const toastId = toastManager.add(
@@ -102,10 +107,7 @@ function EnvironmentAgentNotifications({ environmentId }: { environmentId: Envir
     const delivery = deliveryRef.current;
     if (!delivery) return;
     if (!settings.agentNotificationsEnabled) delivery.clear();
-    else {
-      if (!settings.agentNotificationDesktop) delivery.reconcile();
-      if (activeRef && isViewing(activeRef)) delivery.dismiss(activeRef);
-    }
+    else if (activeRef || !settings.agentNotificationDesktop) delivery.reconcile();
   }, [activeRef, settings.agentNotificationsEnabled, settings.agentNotificationDesktop]);
   return null;
 }

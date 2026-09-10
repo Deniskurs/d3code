@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, ThreadId, type ScopedThreadRef } from "@t3tools/contracts";
 import type { AgentNotification } from "@t3tools/shared/agentAwareness";
 import {
   createAgentNotificationDelivery,
@@ -40,10 +40,13 @@ function harness() {
   };
   const opened: string[] = [];
   const visible = new Map<string, () => void>();
-  let viewing = false;
+  let selected: ScopedThreadRef | null = null;
+  let focused = true;
   const delivery = createAgentNotificationDelivery({
     settings: () => settings,
-    isViewing: () => viewing,
+    isSelected: (ref) =>
+      selected?.environmentId === ref.environmentId && selected.threadId === ref.threadId,
+    isAppFocused: () => focused,
     onOpen: (ref) => opened.push(`${ref.environmentId}/${ref.threadId}`),
     showToast: (event, onOpen) => {
       visible.set(event.id, onOpen);
@@ -57,8 +60,12 @@ function harness() {
     settings,
     opened,
     visible,
-    view: () => {
-      viewing = true;
+    select: (ref: ScopedThreadRef | null) => {
+      selected = ref;
+      delivery.reconcile();
+    },
+    focus: (value: boolean) => {
+      focused = value;
       delivery.reconcile();
     },
   };
@@ -77,6 +84,108 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("agent notification delivery", () => {
+  it("keeps a selected background thread's native alert without an Open thread toast", async () => {
+    const show = vi.fn(async () => true);
+    const dismiss = vi.fn(async () => undefined);
+    vi.stubGlobal("window", { desktopBridge: { notifications: { show, dismiss } } });
+    const h = harness();
+    const event = notification();
+    h.focus(false);
+    h.select(event);
+    await h.delivery.notify(event);
+    expect(h.visible.size).toBe(0);
+    expect(show).toHaveBeenCalledOnce();
+    expect(dismiss).not.toHaveBeenCalled();
+    h.delivery.open(event);
+    expect(h.opened).toEqual([]);
+    expect(dismiss).toHaveBeenCalledWith(event.id);
+  });
+
+  it("does not alert for the selected foreground thread", async () => {
+    const show = vi.fn(async () => true);
+    vi.stubGlobal("window", {
+      desktopBridge: { notifications: { show, dismiss: vi.fn(async () => undefined) } },
+    });
+    const h = harness();
+    const event = notification();
+    h.select(event);
+    await h.delivery.notify(event);
+    expect(h.visible.size).toBe(0);
+    expect(show).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])(
+    "retires the toast on selection during native handoff with app focus %s",
+    async (focused) => {
+      const started = deferred<void>();
+      const acknowledgement = deferred<boolean>();
+      const dismiss = vi.fn(async () => undefined);
+      vi.stubGlobal("window", {
+        desktopBridge: {
+          notifications: {
+            show: () => {
+              started.resolve();
+              return acknowledgement.promise;
+            },
+            dismiss,
+          },
+        },
+      });
+      const h = harness();
+      const event = notification();
+      h.focus(focused);
+      const pending = h.delivery.notify(event);
+      await started.promise;
+      expect(h.visible.has(event.id)).toBe(true);
+      h.select(event);
+      expect(h.visible.size).toBe(0);
+      // Leaving again must not resurrect a toast or an already-retired native alert.
+      h.select({ environmentId: event.environmentId, threadId: ThreadId.make("other") });
+      acknowledgement.resolve(true);
+      await pending;
+      expect(h.visible.size).toBe(0);
+      if (focused) {
+        expect(dismiss).toHaveBeenCalledWith(event.id);
+        h.delivery.open(event);
+        expect(h.opened).toEqual([]);
+      } else {
+        expect(dismiss).not.toHaveBeenCalled();
+        h.delivery.open(event);
+        expect(h.opened).toEqual(["remote/thread"]);
+      }
+    },
+  );
+
+  it("withdraws only the toast on background selection, then the native alert on focus", async () => {
+    const dismiss = vi.fn(async () => undefined);
+    vi.stubGlobal("window", {
+      desktopBridge: { notifications: { show: vi.fn(async () => true), dismiss } },
+    });
+    const h = harness();
+    const event = notification();
+    await h.delivery.notify(event);
+    h.focus(false);
+    h.select(event);
+    expect(h.visible.size).toBe(0);
+    expect(dismiss).not.toHaveBeenCalled();
+    h.focus(true);
+    expect(dismiss).toHaveBeenCalledWith(event.id);
+    h.delivery.open(event);
+    expect(h.opened).toEqual([]);
+  });
+
+  it("keeps the Open thread action for the same thread ID in another environment", async () => {
+    const h = harness();
+    const event = notification();
+    h.select({ environmentId: EnvironmentId.make("local"), threadId: event.threadId });
+    await h.delivery.notify(event);
+    h.delivery.reconcile();
+    expect(h.visible.has(event.id)).toBe(true);
+    h.visible.get(event.id)!();
+    expect(h.opened).toEqual(["remote/thread"]);
+    expect(h.visible.size).toBe(0);
+  });
+
   it("keeps all background-thread alerts usable when browser permission is denied", async () => {
     const h = harness();
     const first = notification();
@@ -134,7 +243,7 @@ describe("agent notification delivery", () => {
     h.delivery.reconcile();
     expect(h.visible.size).toBe(0);
     h.settings.agentNotificationsEnabled = true;
-    h.view();
+    h.select(event);
     await h.delivery.notify(notification());
     expect(h.visible.size).toBe(0);
     expect(show).toHaveBeenCalledTimes(1);
@@ -189,34 +298,41 @@ describe("agent notification delivery", () => {
     expect(h.opened).toEqual(["remote/thread"]);
   });
 
-  it("opens the scoped thread from a browser notification and disables retired clicks", async () => {
-    const emitted: EventTarget[] = [];
-    const closed: string[] = [];
-    class BrowserNotification extends EventTarget {
-      static permission = "granted";
-      constructor(title: string) {
-        super();
-        emitted.push(this);
-        this.addEventListener("close", () => closed.push(title));
+  it.each([false, true])(
+    "refocuses browser notifications without redundant navigation when selected is %s",
+    async (selected) => {
+      const emitted: EventTarget[] = [];
+      const closed: string[] = [];
+      class BrowserNotification extends EventTarget {
+        static permission = "granted";
+        constructor(title: string) {
+          super();
+          emitted.push(this);
+          this.addEventListener("close", () => closed.push(title));
+        }
+        close() {
+          this.dispatchEvent(new Event("close"));
+        }
       }
-      close() {
-        this.dispatchEvent(new Event("close"));
-      }
-    }
-    const focus = vi.fn();
-    vi.stubGlobal("window", { focus });
-    vi.stubGlobal("Notification", BrowserNotification);
-    const h = harness();
-    const first = notification();
-    await h.delivery.notify(first);
-    emitted[0]!.dispatchEvent(new Event("click"));
-    expect(h.opened).toEqual(["remote/thread"]);
-    expect(focus).toHaveBeenCalledOnce();
-    expect(closed).toEqual([`${first.headline}: ${first.threadTitle}`]);
-    emitted[0]!.dispatchEvent(new Event("click"));
-    expect(h.opened).toEqual(["remote/thread"]);
-    expect(h.visible.size).toBe(0);
-  });
+      const focus = vi.fn();
+      vi.stubGlobal("window", { focus });
+      vi.stubGlobal("Notification", BrowserNotification);
+      const h = harness();
+      const event = notification();
+      h.focus(false);
+      if (selected) h.select(event);
+      await h.delivery.notify(event);
+      expect(h.visible.has(event.id)).toBe(!selected);
+      emitted[0]!.dispatchEvent(new Event("click"));
+      expect(h.opened).toEqual(selected ? [] : ["remote/thread"]);
+      expect(focus).toHaveBeenCalledOnce();
+      expect(closed).toEqual([`${event.headline}: ${event.threadTitle}`]);
+      emitted[0]!.dispatchEvent(new Event("click"));
+      expect(h.opened).toEqual(selected ? [] : ["remote/thread"]);
+      expect(focus).toHaveBeenCalledOnce();
+      expect(h.visible.size).toBe(0);
+    },
+  );
 
   it("requests browser permission only on explicit request and tolerates unsupported browsers", async () => {
     const requestPermission = vi.fn(async () => "granted" as const);

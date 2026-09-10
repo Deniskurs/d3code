@@ -24,8 +24,8 @@ const decodeDelivered = Schema.decodeUnknownOption(
 );
 const localDelivered = new Set<string>();
 
-/** One sound/system alert per event across same-origin browser tabs. */
-async function claimNotification(id: string): Promise<boolean> {
+/** Commit a cross-tab claim only when this client can deliver that channel. */
+async function claimNotification(id: string, deliver: () => boolean): Promise<boolean> {
   const claim = () => {
     let delivered: readonly string[] = [];
     try {
@@ -35,6 +35,7 @@ async function claimNotification(id: string): Promise<boolean> {
       // Restricted storage still supports per-client notifications.
     }
     if (localDelivered.has(id) || delivered.includes(id)) return false;
+    if (!deliver()) return false;
     localDelivered.add(id);
     if (localDelivered.size > 128) localDelivered.delete(localDelivered.values().next().value!);
     try {
@@ -49,43 +50,101 @@ async function claimNotification(id: string): Promise<boolean> {
 
 let audioContext: AudioContext | null = null;
 let lastSoundAt = -Infinity;
+let audioUnlocked = false;
+let audioActivation: Promise<void> | null = null;
+let audioSuspension: Promise<void> | null = null;
+let pendingSounds = 0;
+let playingSounds = 0;
 
-/** Audio is unlocked only by a user gesture; never keep an idle audio device running. */
+function suspendIdleAudio(context: AudioContext): Promise<void> | undefined {
+  if (context !== audioContext || pendingSounds > 0 || playingSounds > 0) {
+    return;
+  }
+  if (audioSuspension) return audioSuspension;
+  const suspension = context.suspend().catch(() => undefined);
+  audioSuspension = suspension;
+  void suspension.then(() => {
+    if (audioSuspension === suspension) audioSuspension = null;
+  });
+  return suspension;
+}
+
+/** Capture gestures before editors stop propagation; failed activation can be retried. */
 export function installAgentNotificationAudio(): () => void {
+  const target = window;
   const unlock = () => {
-    if (typeof AudioContext === "undefined") return;
-    window.removeEventListener("pointerdown", unlock);
-    window.removeEventListener("keydown", unlock);
-    audioContext ??= new AudioContext();
-    void audioContext
-      .resume()
-      .then(() => audioContext?.suspend())
-      .catch(() => undefined);
+    if (typeof AudioContext === "undefined" || audioUnlocked) return;
+    try {
+      const context = (audioContext ??= new AudioContext());
+      const activation = context
+        .resume()
+        .then(async () => {
+          if (context !== audioContext || audioActivation !== activation) return;
+          audioUnlocked = context.state === "running";
+          await suspendIdleAudio(context);
+        })
+        .catch(() => {
+          if (context === audioContext && audioActivation === activation) audioUnlocked = false;
+        });
+      audioActivation = activation;
+      void activation.then(() => {
+        if (audioActivation === activation) audioActivation = null;
+      });
+    } catch {
+      // A later gesture can retry if the audio device was unavailable.
+    }
   };
-  window.addEventListener("pointerdown", unlock, { once: true });
-  window.addEventListener("keydown", unlock, { once: true });
+  target.addEventListener("pointerdown", unlock, true);
+  target.addEventListener("keydown", unlock, true);
   return () => {
-    window.removeEventListener("pointerdown", unlock);
-    window.removeEventListener("keydown", unlock);
+    target.removeEventListener("pointerdown", unlock, true);
+    target.removeEventListener("keydown", unlock, true);
     const context = audioContext;
     audioContext = null;
+    audioUnlocked = false;
+    audioActivation = null;
+    audioSuspension = null;
+    pendingSounds = 0;
+    playingSounds = 0;
+    lastSoundAt = -Infinity;
     if (context) void context.close().catch(() => undefined);
   };
 }
 
-function playNotificationSound(phase: AgentNotification["phase"]): void {
-  const context = audioContext;
-  if (!context || Date.now() - lastSoundAt < 750) return;
-  lastSoundAt = Date.now();
-  void context
-    .resume()
-    .then(() => {
-      if (context !== audioContext || context.state === "closed") return;
+async function playNotificationSound(
+  notification: AgentNotification,
+  canPlay: () => boolean,
+): Promise<void> {
+  // Browser tabs need activation. Electron's app renderer permits autoplay,
+  // including alerts that arrive before the first click after launch.
+  if (!canPlay() || typeof AudioContext === "undefined") return;
+  if (!audioUnlocked && !audioActivation && !window.desktopBridge) return;
+  let context: AudioContext;
+  try {
+    context = audioContext ??= new AudioContext();
+  } catch {
+    return;
+  }
+  pendingSounds += 1;
+  try {
+    await audioActivation;
+    await audioSuspension;
+    if (context !== audioContext || !canPlay()) return;
+    await context.resume();
+    if (context !== audioContext || context.state !== "running") return;
+    audioUnlocked = true;
+    await claimNotification(`sound:${notification.id}`, () => {
+      if (context !== audioContext || context.state !== "running" || !canPlay()) return false;
+      const now = Date.now();
+      if (now - lastSoundAt < 750) return true;
       const oscillator = context.createOscillator();
       const gain = context.createGain();
       const start = context.currentTime;
-      oscillator.frequency.setValueAtTime(phase === "completed" ? 660 : 880, start);
-      oscillator.frequency.setValueAtTime(phase === "completed" ? 880 : 660, start + 0.1);
+      oscillator.frequency.setValueAtTime(notification.phase === "completed" ? 660 : 880, start);
+      oscillator.frequency.setValueAtTime(
+        notification.phase === "completed" ? 880 : 660,
+        start + 0.1,
+      );
       gain.gain.setValueAtTime(0, start);
       gain.gain.linearRampToValueAtTime(0.12, start + 0.015);
       gain.gain.exponentialRampToValueAtTime(0.001, start + 0.25);
@@ -96,27 +155,39 @@ function playNotificationSound(phase: AgentNotification["phase"]): void {
         () => {
           oscillator.disconnect();
           gain.disconnect();
-          void context.suspend().catch(() => undefined);
+          if (context !== audioContext) return;
+          playingSounds -= 1;
+          void suspendIdleAudio(context);
         },
         { once: true },
       );
       oscillator.start(start);
       oscillator.stop(start + 0.26);
-    })
-    .catch(() => undefined);
+      playingSounds += 1;
+      lastSoundAt = now;
+      return true;
+    });
+  } catch {
+    // A transient device failure does not revoke an earlier user activation.
+    // Leave this event unclaimed so another audio-ready tab can deliver it.
+  } finally {
+    if (context === audioContext) {
+      pendingSounds -= 1;
+      await suspendIdleAudio(context);
+    }
+  }
 }
 
 async function showSystemNotification(
   notification: AgentNotification,
   onOpen: () => void,
-  silent: boolean,
 ): Promise<(() => void) | null> {
   const title = `${notification.headline}: ${notification.threadTitle}`;
   const body = notification.projectTitle;
   const threadRef = { environmentId: notification.environmentId, threadId: notification.threadId };
   const bridge = window.desktopBridge?.notifications;
   if (bridge) {
-    const shown = await bridge.show({ id: notification.id, title, body, threadRef, silent });
+    const shown = await bridge.show({ id: notification.id, title, body, threadRef, silent: true });
     return shown
       ? () => {
           void bridge.dismiss(notification.id).catch(() => undefined);
@@ -127,7 +198,7 @@ async function showSystemNotification(
   const systemNotification = new Notification(title, {
     body,
     tag: scopedThreadKey(threadRef),
-    silent,
+    silent: true,
   });
   const open = () => {
     window.focus();
@@ -156,7 +227,8 @@ export interface AgentNotificationDelivery {
 /** Owns alert lifetime, including cancellation while native IPC is still pending. */
 export function createAgentNotificationDelivery(options: {
   readonly settings: () => NotificationSettings;
-  readonly isViewing: (ref: ScopedThreadRef) => boolean;
+  readonly isSelected: (ref: ScopedThreadRef) => boolean;
+  readonly isAppFocused: () => boolean;
   readonly onOpen: (ref: ScopedThreadRef) => void;
   readonly showToast: (notification: AgentNotification, onOpen: () => void) => () => void;
 }): AgentNotificationDelivery {
@@ -164,23 +236,24 @@ export function createAgentNotificationDelivery(options: {
     string,
     {
       notification: AgentNotification;
-      closeToast: () => void;
+      closeToast: (() => void) | null;
       closeSystem: (() => void) | null;
     }
   >();
+  const isViewing = (ref: ScopedThreadRef) => options.isSelected(ref) && options.isAppFocused();
 
   const dismiss = (ref: ScopedThreadRef) => {
     const key = scopedThreadKey(ref);
     const entry = active.get(key);
     if (!entry) return;
     active.delete(key);
-    entry.closeToast();
+    entry.closeToast?.();
     entry.closeSystem?.();
   };
   const open = (ref: ScopedThreadRef) => {
     if (!active.has(scopedThreadKey(ref))) return;
     dismiss(ref);
-    options.onOpen(ref);
+    if (!options.isSelected(ref)) options.onOpen(ref);
   };
   const clear = () => {
     for (const entry of active.values()) dismiss(entry.notification);
@@ -189,8 +262,15 @@ export function createAgentNotificationDelivery(options: {
     const settings = options.settings();
     if (!settings.agentNotificationsEnabled) return clear();
     for (const entry of active.values()) {
-      if (options.isViewing(entry.notification)) dismiss(entry.notification);
-      else if (!settings.agentNotificationDesktop) {
+      if (isViewing(entry.notification)) {
+        dismiss(entry.notification);
+        continue;
+      }
+      if (options.isSelected(entry.notification)) {
+        entry.closeToast?.();
+        entry.closeToast = null;
+      }
+      if (!settings.agentNotificationDesktop) {
         entry.closeSystem?.();
         entry.closeSystem = null;
       }
@@ -206,7 +286,7 @@ export function createAgentNotificationDelivery(options: {
       const key = scopedThreadKey(notification);
       if (active.get(key)?.notification.id === notification.id) return;
       dismiss(notification);
-      if (!options.settings().agentNotificationsEnabled || options.isViewing(notification)) return;
+      if (!options.settings().agentNotificationsEnabled || isViewing(notification)) return;
       if (active.size >= 64) {
         const oldest = active.values().next().value;
         if (oldest) dismiss(oldest.notification);
@@ -214,28 +294,36 @@ export function createAgentNotificationDelivery(options: {
       const onOpen = () => open(notification);
       const entry = {
         notification,
-        closeToast: options.showToast(notification, onOpen),
+        closeToast: options.isSelected(notification)
+          ? null
+          : options.showToast(notification, onOpen),
         closeSystem: null as (() => void) | null,
       };
       active.set(key, entry);
-      const claimed = await claimNotification(notification.id).catch(() => false);
-      reconcile();
-      if (!claimed || active.get(key) !== entry) return;
-      if (options.settings().agentNotificationDesktop) {
-        entry.closeSystem = await showSystemNotification(
-          notification,
-          onOpen,
-          !options.settings().agentNotificationSound,
-        ).catch(() => null);
+      const canDeliver = () =>
+        active.get(key) === entry &&
+        options.settings().agentNotificationsEnabled &&
+        !isViewing(notification);
+      // Sound is independent of OS delivery and its permission/settings. Separate
+      // claims let an audio-ready tab sound an event another tab already displayed.
+      const sound = playNotificationSound(
+        notification,
+        () => canDeliver() && options.settings().agentNotificationSound,
+      );
+      const system = async () => {
+        const claimed = await claimNotification(
+          `system:${notification.id}`,
+          () =>
+            canDeliver() &&
+            options.settings().agentNotificationDesktop &&
+            getAgentNotificationPermission() === "granted",
+        ).catch(() => false);
+        if (!claimed || !canDeliver()) return;
+        entry.closeSystem = await showSystemNotification(notification, onOpen).catch(() => null);
         reconcile();
-        if (active.get(key) !== entry) {
-          entry.closeSystem?.();
-          return;
-        }
-      }
-      if (!entry.closeSystem && options.settings().agentNotificationSound) {
-        playNotificationSound(notification.phase);
-      }
+        if (active.get(key) !== entry) entry.closeSystem?.();
+      };
+      await Promise.all([sound, system()]);
     },
   };
 }

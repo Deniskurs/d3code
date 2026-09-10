@@ -26,11 +26,19 @@ On web and desktop, **Settings → General → Notifications** controls alerts f
 completed work, failures, approvals, and input requests across all threads and
 providers in your connected environments. Sound and system notifications can be
 turned off independently. Choose **Open thread** on an alert to go to its thread.
-The thread you are viewing stays quiet while that window is focused.
+The selected thread never shows an in-app **Open thread** prompt. It also stays
+silent while the app window is focused. When the app is in the background, system
+notifications and sound can still alert you; selecting the thread dismisses its
+in-app alert, and focusing it also dismisses its system alert.
 
-In a browser, choose **Allow notifications** in that section to enable system
-alerts. In-app alerts work without browser permission. Your operating system's
-notification permissions and Focus or Do Not Disturb settings still apply.
+The notification sound is app audio, independent of system banners. In a browser,
+click or press a key in the app first to enable audio, and make sure the tab and
+device are not muted. Alerts arriving within 750 ms share one sound.
+
+Choose **Allow notifications** in that section to enable browser system banners.
+In-app alerts and sound work without notification permission. Your operating
+system's notification permissions and Focus or Do Not Disturb settings control
+system banners; use the app's sound toggle to mute its tone.
 
 Keep the app open and connected to receive web or desktop alerts; reconnecting
 does not replay old notifications. For alerts while your phone is away from the
