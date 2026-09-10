@@ -6,6 +6,19 @@ include a skill when the task needs more context.
 Messages can contain up to 120,000 characters. Longer drafts stay in the composer
 so you can shorten them or split them into several messages.
 
+## Steer or queue a message
+
+All providers in the web and desktop composer offer the same delivery choices:
+
+- **Steer** to send instructions to the running task using the selected provider's native follow-up behaviour. The provider controls when it applies them.
+- **Queue** to save a follow-up until the current task finishes. The send button uses the same label, and Enter follows the selected mode.
+
+The queue is attached to the composer. You can edit or remove unsent messages, pause and resume delivery from a chosen message, or choose **Send now** to steer with a queued message. Delivery pauses after a stopped or failed task and while the agent needs an approval or answer. Use **Send now** when you are ready to continue after a failure.
+
+Queued messages and their attachments are saved on the device where you queued them. Keep D3 open to deliver them; reopening it resumes the queue after reconnecting. Switching conversations does not stop delivery. The queue is not shared with another device or the native mobile client. A file restored from an older draft may need reattaching before it can be saved in the queue.
+
+Messages become read-only once submission starts. If delivery cannot be confirmed, **Retry delivery** reuses the original message ID to avoid a duplicate. **Submitted** means the server accepted the command; the conversation shows the response when the provider processes it.
+
 ## Attach files
 
 Attach up to eight files per message. Images can be up to 10 MB; other files can

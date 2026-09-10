@@ -1577,7 +1577,7 @@ export default function ChatView(props: ChatViewProps) {
   const composerFilesRef = useRef<ComposerFileAttachment[]>([]);
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
   const composerElementContextsRef = useRef<ElementContextDraft[]>([]);
-  const [ompDeliveryMode, setOmpDeliveryMode] = useDeliveryMode(routeThreadKey);
+  const [deliveryMode, setDeliveryMode] = useDeliveryMode(routeThreadKey);
   const localComposerRef = useRef<ChatComposerHandle | null>(null);
   const composerRef = useComposerHandleContext() ?? localComposerRef;
   const [restingComposerControlsHost, setRestingComposerControlsHost] =
@@ -6852,12 +6852,7 @@ export default function ChatView(props: ChatViewProps) {
       );
       return;
     }
-    if (
-      ctxSelectedProvider === "omp" &&
-      ompDeliveryMode === "queue" &&
-      isServerThread &&
-      !isFirstMessage
-    ) {
+    if (deliveryMode === "queue" && isServerThread && !isFirstMessage) {
       try {
         const localAttachments = composerAttachmentsSnapshot.map((attachment) => {
           if (!attachment.file)
@@ -7125,7 +7120,7 @@ export default function ChatView(props: ChatViewProps) {
             attachments: turnAttachmentsResult.value,
           },
           modelSelection: ctxSelectedModelSelection,
-          ...(ctxSelectedProvider === "omp" ? { deliveryMode: ompDeliveryMode } : {}),
+          deliveryMode,
           titleSeed: title,
           runtimeMode,
           interactionMode: sendInteractionMode,
@@ -8495,14 +8490,11 @@ export default function ChatView(props: ChatViewProps) {
                                 />
                               ) : undefined
                             }
-                            deliveryMode={selectedProvider === "omp" ? ompDeliveryMode : undefined}
-                            onDeliveryModeChange={
-                              selectedProvider === "omp" ? setOmpDeliveryMode : undefined
-                            }
+                            deliveryMode={deliveryMode}
+                            onDeliveryModeChange={setDeliveryMode}
                             sendActionLabel={
-                              selectedProvider === "omp" &&
-                              (isWorking || ompDeliveryMode === "queue")
-                                ? ompDeliveryMode === "queue"
+                              isWorking || deliveryMode === "queue"
+                                ? deliveryMode === "queue"
                                   ? "Queue"
                                   : "Steer"
                                 : undefined
