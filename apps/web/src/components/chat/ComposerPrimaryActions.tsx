@@ -4,7 +4,7 @@ import { useEnvironmentIdentificationMode } from "~/hooks/useSettings";
 import { cn } from "~/lib/utils";
 import { StageBackdropButtonArt, useSidebarStageBackdropVariant } from "../SidebarStageBackdrop";
 import { Button } from "../ui/button";
-import { Menu, MenuItem, MenuPopup, MenuTrigger, MenuRadioGroup, MenuRadioItem } from "../ui/menu";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Spinner } from "../ui/spinner";
 import { composerFloatingLayerProps } from "./composerEventScope";
 import { ComposerActionMotion } from "./ComposerActionMotion";
@@ -30,12 +30,10 @@ interface ComposerPrimaryActionsProps {
   isPreparingWorktree: boolean;
   hasSendableContent: boolean;
   preserveComposerFocusOnPointerDown?: boolean;
-  /** Enter-to-send is disabled on mobile viewports, where stop would otherwise
-   * be the only primary action and a running turn could not be steered. */
+  /** Keep submission available alongside Stop so follow-up messages can be queued. */
   showSendWhileRunning?: boolean;
   sendActionLabel?: string | undefined;
-  deliveryMode?: "steer" | "queue" | undefined;
-  onDeliveryModeChange?: ((mode: "steer" | "queue") => void) | undefined;
+  canQueueMessage?: boolean;
   onPreviousPendingQuestion: () => void;
   onInterrupt: () => void;
   onImplementPlanInNewThread: () => void;
@@ -78,8 +76,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   preserveComposerFocusOnPointerDown = false,
   showSendWhileRunning = false,
   sendActionLabel,
-  deliveryMode,
-  onDeliveryModeChange,
+  canQueueMessage = false,
   onPreviousPendingQuestion,
   onInterrupt,
   onImplementPlanInNewThread,
@@ -242,11 +239,13 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
       );
     }
 
+    const canQueue = canQueueMessage && !isPreparingWorktree;
+    const sendIsBusy = (isConnecting || isSendBusy) && !canQueue;
     const sendButton = (
       <button
         key="send"
         data-composer-action="send"
-        data-composer-action-version={`${sendActionLabel ?? ""}:${isConnecting || isSendBusy ? "busy" : "ready"}`}
+        data-composer-action-version={`${sendActionLabel ?? ""}:${sendIsBusy ? "busy" : "ready"}`}
         type="submit"
         className={cn(
           "relative isolate flex h-9 w-9 items-center justify-center overflow-hidden rounded-full shadow-xs transition-[background-color,box-shadow,filter,opacity,scale] duration-150 motion-reduce:transition-none enabled:cursor-pointer enabled:inset-shadow-[0_1px_--theme(--color-white/16%)] hover:scale-105 active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none disabled:pointer-events-none disabled:opacity-30 disabled:shadow-none disabled:hover:scale-100 sm:h-8 sm:w-8",
@@ -257,9 +256,9 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
         )}
         {...pointerFocusProps}
         disabled={
-          isSendBusy ||
+          sendIsBusy ||
           isSendDisabled ||
-          isConnecting ||
+          isPreparingWorktree ||
           isEnvironmentUnavailable ||
           !hasSendableContent
         }
@@ -268,11 +267,11 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
             ? "Environment disconnected"
             : sendDisabledReason
               ? sendDisabledReason
-              : isConnecting
+              : isConnecting && !canQueue
                 ? "Connecting"
                 : isPreparingWorktree
                   ? "Preparing worktree"
-                  : isSendBusy
+                  : isSendBusy && !canQueue
                     ? "Sending"
                     : (sendActionLabel ?? "Send message")
         }
@@ -283,7 +282,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
             <StageBackdropButtonArt variant={stageBackdropVariant} />
           </span>
         ) : null}
-        {isConnecting || isSendBusy ? (
+        {sendIsBusy ? (
           <Spinner className="size-3.5" aria-hidden="true" />
         ) : (
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
@@ -299,49 +298,10 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
       </button>
     );
 
-    const sendActions = onDeliveryModeChange ? (
-      <div className="flex items-center gap-0.5">
-        <Menu>
-          <MenuTrigger
-            render={
-              <Button
-                type="button"
-                data-composer-action="delivery-menu"
-                size="icon-xs"
-                variant="ghost"
-                aria-label="Choose message delivery"
-                disabled={isSendBusy || isConnecting || isEnvironmentUnavailable}
-              />
-            }
-          >
-            <ChevronDownIcon className="size-3.5" />
-          </MenuTrigger>
-          <MenuPopup align="end" side="top" {...composerFloatingLayerProps}>
-            <MenuRadioGroup
-              value={deliveryMode}
-              onValueChange={(value) => {
-                if (value === "steer" || value === "queue") onDeliveryModeChange(value);
-              }}
-            >
-              <MenuRadioItem closeOnClick value="steer">
-                Steer current task
-              </MenuRadioItem>
-              <MenuRadioItem closeOnClick value="queue">
-                Queue after task
-              </MenuRadioItem>
-            </MenuRadioGroup>
-          </MenuPopup>
-        </Menu>
-        {sendButton}
-      </div>
-    ) : (
-      sendButton
-    );
-
     return (
       <>
         {isRunning ? renderStopGenerationButton(false) : null}
-        {!isRunning || (showSendWhileRunning && hasSendableContent) ? sendActions : null}
+        {!isRunning || (showSendWhileRunning && hasSendableContent) ? sendButton : null}
       </>
     );
   };

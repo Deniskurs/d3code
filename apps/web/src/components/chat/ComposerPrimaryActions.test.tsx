@@ -23,7 +23,6 @@ const onSubmit = vi.fn();
 const onPreviousPendingQuestion = vi.fn();
 const onInterrupt = vi.fn();
 const onImplementPlanInNewThread = vi.fn();
-const onDeliveryModeChange = vi.fn();
 
 const baseProps: ActionProps = {
   compact: false,
@@ -38,8 +37,6 @@ const baseProps: ActionProps = {
   isPreparingWorktree: false,
   hasSendableContent: true,
   showSendWhileRunning: true,
-  deliveryMode: "steer",
-  onDeliveryModeChange,
   onPreviousPendingQuestion,
   onInterrupt,
   onImplementPlanInNewThread,
@@ -92,7 +89,6 @@ beforeEach(() => {
   onPreviousPendingQuestion.mockClear();
   onInterrupt.mockClear();
   onImplementPlanInNewThread.mockClear();
-  onDeliveryModeChange.mockClear();
 });
 
 afterEach(async () => {
@@ -142,7 +138,7 @@ describe("ComposerPrimaryActions", () => {
 
     await renderActions();
     expect(getButton("Send message").disabled).toBe(false);
-    expect(getButton("Choose message delivery").disabled).toBe(false);
+    expect(buttonNamed("Choose message delivery")).toBeUndefined();
     expect(buttonNamed("Refine")).toBeUndefined();
   });
 
@@ -151,24 +147,69 @@ describe("ComposerPrimaryActions", () => {
     expect(getButton("Stop generation").disabled).toBe(false);
     expect(buttonNamed("Send message")).toBeUndefined();
 
-    await renderActions({ isRunning: true, hasSendableContent: true });
+    await renderActions({ isRunning: true, hasSendableContent: true, sendActionLabel: "Queue" });
     expect(getButton("Stop generation").disabled).toBe(false);
-    await click(getButton("Send message"));
+    expect(getButton("Queue").textContent).toBe("Queue");
+    expect(buttonNamed("Choose message delivery")).toBeUndefined();
+    await click(getButton("Queue"));
     expect(onSubmit).toHaveBeenCalledOnce();
 
     await renderActions({ isEnvironmentUnavailable: true });
     const disconnectedSend = getButton("Environment disconnected");
-    const disconnectedMenu = getButton("Choose message delivery");
     expect(disconnectedSend.disabled).toBe(true);
-    expect(disconnectedMenu.disabled).toBe(true);
     await click(disconnectedSend);
-    await click(disconnectedMenu);
     expect(onSubmit).toHaveBeenCalledOnce();
-    expect(document.body.textContent).not.toContain("Queue after task");
 
     await renderActions({ isSendBusy: true });
     expect(getButton("Sending").disabled).toBe(true);
-    expect(getButton("Choose message delivery").disabled).toBe(true);
+  });
+
+  it("keeps a queueable follow-up actionable while the current submission starts", async () => {
+    await renderActions({
+      isRunning: true,
+      isSendBusy: true,
+      isConnecting: true,
+      canQueueMessage: true,
+      sendActionLabel: "Queue",
+      preserveComposerFocusOnPointerDown: true,
+    });
+    const queue = getButton("Queue");
+    expect(queue.disabled).toBe(false);
+    const pointerDown = new PointerEvent("pointerdown", { bubbles: true, cancelable: true });
+    await act(() => {
+      queue.dispatchEvent(pointerDown);
+    });
+    expect(pointerDown.defaultPrevented).toBe(true);
+    await click(queue);
+    await click(getButton("Stop generation"));
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onInterrupt).toHaveBeenCalledOnce();
+  });
+
+  it("does not let queue eligibility bypass preparation, provider, or answer guards", async () => {
+    const queueable = { canQueueMessage: true, sendActionLabel: "Queue" };
+    await renderActions({ ...queueable, isPreparingWorktree: true });
+    await click(getButton("Preparing worktree"));
+    await renderActions({ ...queueable, sendDisabledReason: "Choose a model" });
+    await click(getButton("Choose a model"));
+    await renderActions({ ...queueable, isEnvironmentUnavailable: true });
+    await click(getButton("Environment disconnected"));
+    await renderActions({
+      ...queueable,
+      pendingAction: {
+        questionIndex: 0,
+        isLastQuestion: true,
+        canAdvance: false,
+        isResponding: false,
+        isComplete: false,
+      },
+    });
+    await click(getButton("Submit answer"));
+    expect(buttonNamed("Queue")).toBeUndefined();
+    await renderActions({ ...queueable, showPlanFollowUpPrompt: true, isSendBusy: true });
+    await click(getButton("Sending..."));
+    expect(getButton("Implementation actions").disabled).toBe(true);
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it("updates motion only when the real action rail changes", async () => {

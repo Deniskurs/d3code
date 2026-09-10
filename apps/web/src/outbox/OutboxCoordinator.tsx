@@ -10,11 +10,11 @@ import { useAtomValue } from "@effect/atom-react";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { useEnvironments, useEnvironment } from "../state/environments";
-import { useThreadShells } from "../state/entities";
+import { readThreadShell, useThreadShells } from "../state/entities";
 import { environmentShell } from "../state/shell";
 import { threadEnvironment } from "../state/threads";
 import { useAtomCommand } from "../state/use-atom-command";
-import { outboxDeliveryState } from "./model";
+import { nextOutboxMessage, outboxDeliveryState } from "./model";
 import { readMessages, mutateOutbox, refreshOutbox, useOutbox } from "./store";
 
 function EnvironmentOutbox({ environmentId }: { environmentId: EnvironmentId }) {
@@ -35,8 +35,7 @@ function EnvironmentOutbox({ environmentId }: { environmentId: EnvironmentId }) 
       const pending = messages.filter(
         (item) => item.environmentId === environmentId && item.input.threadId === threadId,
       );
-      const candidate =
-        pending.find((item) => item.sendNow && item.status === "waiting") ?? pending[0];
+      const candidate = nextOutboxMessage(pending);
       const thread = threads.find(
         (item) => item.environmentId === environmentId && item.id === threadId,
       );
@@ -59,14 +58,10 @@ function EnvironmentOutbox({ environmentId }: { environmentId: EnvironmentId }) 
               const candidates = (await readMessages()).filter(
                 (item) => item.environmentId === environmentId && item.input.threadId === threadId,
               );
-              const message =
-                candidates.find((item) => item.sendNow && item.status === "waiting") ??
-                candidates[0];
+              const message = nextOutboxMessage(candidates);
               if (!message) return;
               const state = live.current;
-              const thread = state.threads.find(
-                (item) => item.environmentId === environmentId && item.id === threadId,
-              );
+              const thread = readThreadShell({ environmentId, threadId }) ?? undefined;
               const action = outboxDeliveryState(
                 message,
                 thread,
@@ -88,14 +83,9 @@ function EnvironmentOutbox({ environmentId }: { environmentId: EnvironmentId }) 
                   : {
                       ...current,
                       status: "sending",
-                      input:
-                        current.status === "sending"
-                          ? current.input
-                          : {
-                              ...current.input,
-                              createdAt: new Date().toISOString(),
-                              deliveryMode: current.sendNow ? "steer" : "queue",
-                            },
+                      dispatchAttempted:
+                        current.dispatchAttempted ??
+                        (current.input.createdAt != null || current.status === "sending"),
                     },
               );
               if (!claimed || claimed.status !== "sending") return;
@@ -124,6 +114,42 @@ function EnvironmentOutbox({ environmentId }: { environmentId: EnvironmentId }) 
                   );
                   if (!prepared) return;
                   claimed = prepared;
+                }
+                const dispatchThread = readThreadShell({ environmentId, threadId }) ?? undefined;
+                const retryingDispatch = claimed.dispatchAttempted !== false;
+                if (!retryingDispatch) {
+                  const dispatching = await mutateOutbox(claimed.id, (current) =>
+                    current
+                      ? {
+                          ...current,
+                          dispatchAttempted: true,
+                          sessionUpdatedAtBeforeDispatch:
+                            dispatchThread?.session?.updatedAt ?? null,
+                          input: {
+                            ...current.input,
+                            createdAt: new Date().toISOString(),
+                            deliveryMode: current.sendNow ? "steer" : "queue",
+                          },
+                        }
+                      : current,
+                  );
+                  if (!dispatching) return;
+                  claimed = dispatching;
+                }
+                if (
+                  outboxDeliveryState(
+                    { ...claimed, dispatchAttempted: retryingDispatch },
+                    readThreadShell({ environmentId, threadId }) ?? undefined,
+                    live.current.environment?.connection.phase === "connected",
+                    live.current.shell.status === "live",
+                  ) !== "send"
+                ) {
+                  await mutateOutbox(claimed.id, (current) =>
+                    current
+                      ? { ...current, status: "waiting", dispatchAttempted: retryingDispatch }
+                      : current,
+                  );
+                  return;
                 }
                 const result = await start({ environmentId, input: claimed.input });
                 if (result._tag === "Failure") throw squashAtomCommandFailure(result);

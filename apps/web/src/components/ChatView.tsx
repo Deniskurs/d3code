@@ -1,6 +1,6 @@
-import { useDeliveryMode } from "../outbox/deliveryMode";
+import { shouldQueueSubmission } from "../outbox/model";
 import { CommandId } from "@t3tools/contracts";
-import { enqueueOutbox } from "../outbox/store";
+import { enqueueOutbox, readMessages, useOutbox } from "../outbox/store";
 import { OutboxPanel } from "../outbox/OutboxPanel";
 import { hasOmpAuthenticationError } from "../onboarding/providerReadiness.logic";
 import { useLoadBalancedEnvironment } from "../hooks/useLoadBalancedEnvironment";
@@ -318,6 +318,7 @@ import { resolveProviderSkillsForCwd } from "@t3tools/client-runtime/providerSki
 import { vcsEnvironment } from "../state/vcs";
 import { useEnvironments, usePrimaryEnvironment } from "../state/environments";
 import {
+  readThreadShell,
   useProject,
   useProjects,
   useThread,
@@ -1577,7 +1578,7 @@ export default function ChatView(props: ChatViewProps) {
   const composerFilesRef = useRef<ComposerFileAttachment[]>([]);
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
   const composerElementContextsRef = useRef<ElementContextDraft[]>([]);
-  const [deliveryMode, setDeliveryMode] = useDeliveryMode(routeThreadKey);
+  const outboxMessages = useOutbox();
   const localComposerRef = useRef<ChatComposerHandle | null>(null);
   const composerRef = useComposerHandleContext() ?? localComposerRef;
   const [restingComposerControlsHost, setRestingComposerControlsHost] =
@@ -1876,7 +1877,7 @@ export default function ChatView(props: ChatViewProps) {
     [activeThreadEnvironmentId, activeThreadId],
   );
   const activeThreadKey = activeThreadRef ? scopedThreadKey(activeThreadRef) : null;
-  const activeThreadShell = useThreadShell(isServerThread ? activeThreadRef : null);
+  const activeThreadShell = useThreadShell(activeThreadRef);
   const [timelineAnchor, setTimelineAnchor] = useState<{
     readonly threadKey: string | null;
     readonly messageId: MessageId | null;
@@ -2957,6 +2958,14 @@ export default function ChatView(props: ChatViewProps) {
     !compactionSettled;
   const isWorking =
     phase === "running" || isSendBusy || isConnecting || isRevertingCheckpoint || isCompacting;
+  const queueSubmission = shouldQueueSubmission(
+    activeThreadShell,
+    outboxMessages.some(
+      (message) =>
+        message.environmentId === environmentId && message.input.threadId === activeThreadId,
+    ),
+    isSendBusy || isConnecting,
+  );
   const activeWorkStartedAt = deriveActiveWorkStartedAt(
     activeLatestTurn,
     activeThread?.session ?? null,
@@ -6478,8 +6487,9 @@ export default function ChatView(props: ChatViewProps) {
     };
     if (
       !activeThread ||
-      isSendBusy ||
-      isConnecting ||
+      ((isSendBusy || isConnecting) &&
+        !readThreadShell({ environmentId, threadId: activeThread.id })) ||
+      isPreparingWorktree ||
       !clientSettingsHydrated ||
       threadDetailLoading ||
       sendInFlightRef.current ||
@@ -6785,6 +6795,50 @@ export default function ChatView(props: ChatViewProps) {
       };
     };
 
+    const shouldQueueNow = async () => {
+      const messages = await readMessages();
+      return shouldQueueSubmission(
+        readThreadShell({ environmentId, threadId: threadIdForSend }),
+        messages.some(
+          (message) =>
+            message.environmentId === environmentId && message.input.threadId === threadIdForSend,
+        ),
+        isSendBusy || isConnecting,
+      );
+    };
+    const saveQueuedMessage = async (messageId = newMessageId()) => {
+      const localAttachments = composerAttachmentsSnapshot.map((attachment) => {
+        if (!attachment.file)
+          throw new Error(
+            `Reattach ${attachment.name} to save a durable queued copy on this device.`,
+          );
+        const {
+          uploadedAttachmentId: _uploadedId,
+          uploadEnvironmentId: _uploadedEnvironment,
+          ...file
+        } = attachment.type === "file"
+          ? attachment
+          : { ...attachment, uploadedAttachmentId: undefined, uploadEnvironmentId: undefined };
+        return { ...file, id: randomUUID() };
+      });
+
+      await enqueueOutbox({
+        id: messageId,
+        environmentId,
+        queuedAt: new Date().toISOString(),
+        status: "waiting",
+        localAttachments,
+        input: {
+          commandId: CommandId.make(randomUUID()),
+          threadId: threadIdForSend,
+          message: { messageId, role: "user", text: outgoingMessageText, attachments: [] },
+          modelSelection: ctxSelectedModelSelection,
+          runtimeMode,
+          interactionMode: sendInteractionMode,
+          deliveryMode: "queue",
+        },
+      });
+    };
     sendInFlightRef.current = true;
     const attachmentCapabilitiesBeforeUpload = readLiveAttachmentCapabilities();
     if (attachmentCapabilitiesBeforeUpload.fileBlockReason !== null) {
@@ -6796,6 +6850,25 @@ export default function ChatView(props: ChatViewProps) {
       composerFilesSnapshot.length > 0
         ? attachmentCapabilitiesBeforeUpload.supportsAttachmentUploads
         : supportsAttachmentUploads;
+    try {
+      if (await shouldQueueNow()) {
+        await saveQueuedMessage();
+        promptRef.current = "";
+        clearComposerDraftContent(composerDraftTarget);
+        composerRef.current?.resetCursorState();
+        if (turnUsesAttachmentUploads) releaseDraftAttachments(composerAttachmentsSnapshot);
+        setThreadError(threadIdForSend, null);
+        sendInFlightRef.current = false;
+        return;
+      }
+    } catch (error) {
+      setThreadError(
+        threadIdForSend,
+        error instanceof Error ? error.message : "Could not save the queued message.",
+      );
+      sendInFlightRef.current = false;
+      return;
+    }
     if (turnUsesAttachmentUploads && composerAttachmentsSnapshot.length > 0) {
       for (const attachment of composerAttachmentsSnapshot) {
         startAttachmentUpload({
@@ -6850,54 +6923,6 @@ export default function ChatView(props: ChatViewProps) {
       setDockedDraftHeroThreadKey((currentThreadKey) =>
         currentThreadKey === activeThreadKey ? null : currentThreadKey,
       );
-      return;
-    }
-    if (deliveryMode === "queue" && isServerThread && !isFirstMessage) {
-      try {
-        const localAttachments = composerAttachmentsSnapshot.map((attachment) => {
-          if (!attachment.file)
-            throw new Error(
-              `Reattach ${attachment.name} to save a durable queued copy on this device.`,
-            );
-          const {
-            uploadedAttachmentId: _uploadedId,
-            uploadEnvironmentId: _uploadedEnvironment,
-            ...file
-          } = attachment.type === "file"
-            ? attachment
-            : { ...attachment, uploadedAttachmentId: undefined, uploadEnvironmentId: undefined };
-          return { ...file, id: randomUUID() };
-        });
-        const messageId = newMessageId();
-        await enqueueOutbox({
-          id: messageId,
-          environmentId,
-          queuedAt: new Date().toISOString(),
-          status: "waiting",
-          localAttachments,
-          input: {
-            commandId: CommandId.make(randomUUID()),
-            threadId: threadIdForSend,
-            message: { messageId, role: "user", text: outgoingMessageText, attachments: [] },
-            modelSelection: ctxSelectedModelSelection,
-            runtimeMode,
-            interactionMode: sendInteractionMode,
-            deliveryMode: "queue",
-          },
-        });
-        promptRef.current = "";
-        clearComposerDraftContent(composerDraftTarget);
-        composerRef.current?.resetCursorState();
-        if (turnUsesAttachmentUploads) releaseDraftAttachments(composerAttachmentsSnapshot);
-        setThreadError(threadIdForSend, null);
-      } catch (error) {
-        setThreadError(
-          threadIdForSend,
-          error instanceof Error ? error.message : "Could not save the queued message.",
-        );
-      } finally {
-        sendInFlightRef.current = false;
-      }
       return;
     }
     beginLocalDispatch({
@@ -7070,6 +7095,27 @@ export default function ChatView(props: ChatViewProps) {
       failure = turnAttachmentsResult;
     }
 
+    const finalQueueDecision = failure === null ? await settlePromise(shouldQueueNow) : null;
+    if (finalQueueDecision?._tag === "Failure") {
+      failure = finalQueueDecision;
+    }
+    if (finalQueueDecision?._tag === "Success" && finalQueueDecision.value) {
+      const queuedResult = await settlePromise(() => saveQueuedMessage(messageIdForSend));
+      if (queuedResult._tag === "Failure") {
+        failure = queuedResult;
+      } else {
+        setOptimisticUserMessages((existing) => {
+          for (const message of existing) {
+            if (message.id === messageIdForSend) revokeUserMessagePreviewUrls(message);
+          }
+          return existing.filter((message) => message.id !== messageIdForSend);
+        });
+        if (turnUsesAttachmentUploads) releaseDraftAttachments(composerAttachmentsSnapshot);
+        sendInFlightRef.current = false;
+        resetLocalDispatch();
+        return;
+      }
+    }
     let turnStartSucceeded = false;
     if (failure === null && turnAttachmentsResult._tag === "Success") {
       const bootstrap =
@@ -7120,7 +7166,7 @@ export default function ChatView(props: ChatViewProps) {
             attachments: turnAttachmentsResult.value,
           },
           modelSelection: ctxSelectedModelSelection,
-          deliveryMode,
+          deliveryMode: "queue",
           titleSeed: title,
           runtimeMode,
           interactionMode: sendInteractionMode,
@@ -7604,6 +7650,7 @@ export default function ChatView(props: ChatViewProps) {
               attachments: [],
             },
             modelSelection: ctxSelectedModelSelection,
+            deliveryMode: "queue",
             titleSeed: activeThread.title,
             runtimeMode,
             interactionMode: nextInteractionMode,
@@ -7743,6 +7790,7 @@ export default function ChatView(props: ChatViewProps) {
             attachments: [],
           },
           modelSelection: ctxSelectedModelSelection,
+          deliveryMode: "queue",
           titleSeed: nextThreadTitle,
           runtimeMode,
           interactionMode: "default",
@@ -8484,15 +8532,10 @@ export default function ChatView(props: ChatViewProps) {
                                 />
                               ) : undefined
                             }
-                            deliveryMode={deliveryMode}
-                            onDeliveryModeChange={setDeliveryMode}
-                            sendActionLabel={
-                              isWorking || deliveryMode === "queue"
-                                ? deliveryMode === "queue"
-                                  ? "Queue"
-                                  : "Steer"
-                                : undefined
+                            canQueueMessage={
+                              !isSendBusy && activeThreadShell != null && queueSubmission
                             }
+                            sendActionLabel={queueSubmission ? "Queue" : undefined}
                             composerRef={composerRef}
                             composerDraftTarget={composerDraftTarget}
                             environmentId={environmentId}

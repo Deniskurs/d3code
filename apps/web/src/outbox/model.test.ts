@@ -7,7 +7,13 @@ import {
   TurnId,
   type OrchestrationThreadShell,
 } from "@t3tools/contracts";
-import { editOutboxMessage, outboxDeliveryState, type OutboxMessage } from "./model";
+import {
+  editOutboxMessage,
+  nextOutboxMessage,
+  outboxDeliveryState,
+  shouldQueueSubmission,
+  type OutboxMessage,
+} from "./model";
 
 const message: OutboxMessage = {
   id: "message",
@@ -53,6 +59,15 @@ describe("device outbox delivery", () => {
     }
     expect(state(message, { ...ready, hasPendingApprovals: true })).toBe("paused");
     expect(state(message, { ...ready, hasPendingUserInput: true })).toBe("paused");
+    expect(state({ ...message, sendNow: true }, { ...ready, hasPendingUserInput: true })).toBe(
+      "paused",
+    );
+    expect(
+      state(
+        { ...message, status: "sending", dispatchAttempted: true },
+        { ...ready, hasPendingApprovals: true },
+      ),
+    ).toBe("paused");
   });
   it("send now steers a running task but never bypasses required answers", () => {
     expect(state({ ...message, sendNow: true }, running)).toBe("send");
@@ -90,6 +105,36 @@ describe("device outbox delivery", () => {
       }),
     ).toBe("finished");
   });
+  it("drains checkpoint-free completion, but not a stale idle acknowledgement", () => {
+    const submitted = { ...message, status: "submitted" as const };
+    const projectedMessage = {
+      ...ready,
+      latestUserMessageAt: message.input.createdAt!,
+      session: { ...ready.session!, updatedAt: "2026-09-09T10:00:59.000Z" },
+    };
+    expect(state(submitted, projectedMessage)).toBe("submitted");
+    expect(state(message, projectedMessage)).toBe("waiting");
+    const completed = {
+      ...projectedMessage,
+      session: { ...projectedMessage.session, updatedAt: "2026-09-09T10:01:05.000Z" },
+    };
+    expect(state(submitted, completed)).toBe("finished");
+    expect(state(message, completed)).toBe("send");
+    expect(state(submitted, { ...completed, backgroundLiveness: "working" })).toBe("submitted");
+    expect(state(submitted, { ...completed, backgroundLiveness: "monitoring" })).toBe("finished");
+    expect(
+      state(
+        { ...submitted, sessionUpdatedAtBeforeDispatch: completed.session.updatedAt },
+        completed,
+      ),
+    ).toBe("submitted");
+  });
+  it("rechecks work after preparing attachments without treating preparation as dispatch", () => {
+    expect(state({ ...message, status: "sending", dispatchAttempted: false }, running)).toBe(
+      "waiting",
+    );
+    expect(state({ ...message, status: "sending", dispatchAttempted: true }, running)).toBe("send");
+  });
   it("recovers an interrupted dispatch without changing the immutable command", () => {
     const sending = { ...message, status: "sending" as const };
     expect(state(sending, running)).toBe("send");
@@ -118,5 +163,39 @@ describe("device outbox delivery", () => {
       "unavailable",
     );
     expect(outboxDeliveryState(message, undefined, true, true)).toBe("unavailable");
+  });
+});
+
+describe("queue-first submissions", () => {
+  it("starts idle threads immediately, including an uncreated draft", () => {
+    expect(shouldQueueSubmission(ready, false)).toBe(false);
+    expect(shouldQueueSubmission(null, false)).toBe(false);
+  });
+  it("queues running, starting, background work and local dispatch catch-up", () => {
+    expect(shouldQueueSubmission(running, false)).toBe(true);
+    expect(
+      shouldQueueSubmission(
+        { ...ready, session: { ...ready.session!, status: "starting" } },
+        false,
+      ),
+    ).toBe(true);
+    expect(shouldQueueSubmission({ ...ready, backgroundLiveness: "working" }, false)).toBe(true);
+    expect(shouldQueueSubmission({ ...ready, backgroundLiveness: "monitoring" }, false)).toBe(
+      false,
+    );
+    expect(shouldQueueSubmission(ready, false, true)).toBe(true);
+  });
+  it("does not leapfrog saved messages or bypass required answers", () => {
+    expect(shouldQueueSubmission(ready, true)).toBe(true);
+    expect(shouldQueueSubmission({ ...ready, hasPendingApprovals: true }, false)).toBe(true);
+    expect(shouldQueueSubmission({ ...ready, hasPendingUserInput: true }, false)).toBe(true);
+  });
+  it("keeps FIFO, including paused heads, unless a waiting item explicitly requests Send now", () => {
+    const paused = { ...message, status: "paused" as const };
+    const second = { ...message, id: "second" };
+    expect(nextOutboxMessage([paused, second])).toBe(paused);
+    const explicit = { ...second, sendNow: true };
+    expect(nextOutboxMessage([paused, explicit])).toBe(explicit);
+    expect(nextOutboxMessage([paused, { ...explicit, status: "editing" }])).toBe(paused);
   });
 });

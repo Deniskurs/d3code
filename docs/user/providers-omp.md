@@ -12,9 +12,9 @@ An available model catalog does not guarantee that an old subscription login is 
 
 Use **Check for updates** in the provider settings to keep OMP current. D3's application updates and OMP's runtime updates are separate.
 
-## Steer or queue a message
+## Queue a follow-up
 
-Use the shared [Steer and Queue controls](composer.md#steer-or-queue-a-message) in the web or desktop composer. OMP applies steering at its next message or tool boundary, without stopping the current model response instantly.
+The web and desktop composer [automatically queues follow-ups](composer.md#queue-a-follow-up) while OMP is working. Choose **Send now** on a queued message to steer the current task. OMP applies those instructions at its next message or tool boundary, without stopping the current model response instantly.
 
 Other clients default to steering when sending to a running OMP session. If an OMP installation cannot load D3's steering extension, messages fall back to waiting for the current turn.
 

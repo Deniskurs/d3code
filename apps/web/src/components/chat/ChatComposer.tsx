@@ -72,7 +72,6 @@ import {
 import {
   composerFloatingLayerProps,
   isInsideCollapsedComposerControls,
-  isInsideComposerFloatingLayer,
   isInsideRestingComposerControlScope,
 } from "./composerEventScope";
 import {
@@ -1137,8 +1136,7 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
   preserveComposerFocusOnPointerDown?: boolean;
   showSendWhileRunning?: boolean;
   sendActionLabel?: string | undefined;
-  deliveryMode?: "steer" | "queue" | undefined;
-  onDeliveryModeChange?: ((mode: "steer" | "queue") => void) | undefined;
+  canQueueMessage?: boolean;
   onPreviousPendingQuestion: () => void;
   onInterrupt: () => void;
   onImplementPlanInNewThread: () => void;
@@ -1178,8 +1176,7 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
         preserveComposerFocusOnPointerDown={props.preserveComposerFocusOnPointerDown ?? false}
         showSendWhileRunning={props.showSendWhileRunning ?? false}
         sendActionLabel={props.sendActionLabel}
-        deliveryMode={props.deliveryMode}
-        onDeliveryModeChange={props.onDeliveryModeChange}
+        canQueueMessage={props.canQueueMessage ?? false}
         onPreviousPendingQuestion={props.onPreviousPendingQuestion}
         onInterrupt={props.onInterrupt}
         onImplementPlanInNewThread={props.onImplementPlanInNewThread}
@@ -1368,8 +1365,7 @@ export interface ChatComposerProps {
 
   // Callbacks
   sendActionLabel?: string | undefined;
-  deliveryMode?: "steer" | "queue" | undefined;
-  onDeliveryModeChange?: ((mode: "steer" | "queue") => void) | undefined;
+  canQueueMessage?: boolean;
   onSend: (e?: { preventDefault: () => void }, intent?: ComposerSubmissionIntent) => void;
   onInterrupt: () => void;
   onImplementPlanInNewThread: () => void;
@@ -2316,16 +2312,21 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       attachmentTargetKey,
     ],
   );
+  const canQueueMessage = Boolean(
+    props.canQueueMessage &&
+    !isPreparingWorktree &&
+    !showPlanFollowUpPrompt &&
+    !activePendingProgress,
+  );
   const collapsedComposerPrimaryActionDisabled =
-    phase === "running" ||
-    isSendBusy ||
+    (!canQueueMessage && (phase === "running" || isSendBusy || isConnecting)) ||
+    isPreparingWorktree ||
     isSendDisabled ||
-    isConnecting ||
     noProviderAvailable ||
     projectSelectionRequired ||
     environmentUnavailable !== null ||
     !composerSendState.hasSendableContent;
-  const collapsedComposerPrimaryActionLabel = "Send message";
+  const collapsedComposerPrimaryActionLabel = props.sendActionLabel ?? "Send message";
   const showMobilePendingAnswerActions =
     isMobileViewport && !isComposerCollapsedMobile && pendingPrimaryAction !== null;
 
@@ -3012,12 +3013,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const shouldBlurMobileComposerOnSubmit = useCallback(() => {
     if (!isMobileViewport) return false;
     if (
-      isSendBusy ||
+      (!canQueueMessage && (isSendBusy || isConnecting || phase === "running")) ||
+      isPreparingWorktree ||
       isSendDisabled ||
-      isConnecting ||
       noProviderAvailable ||
-      environmentUnavailable !== null ||
-      phase === "running"
+      environmentUnavailable !== null
     ) {
       return false;
     }
@@ -3028,10 +3028,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   }, [
     activePendingProgress,
     activePendingResolvedAnswers,
+    canQueueMessage,
     composerSendState.hasSendableContent,
     environmentUnavailable,
     isConnecting,
     isMobileViewport,
+    isPreparingWorktree,
     isSendBusy,
     isSendDisabled,
     noProviderAvailable,
@@ -4598,7 +4600,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     ): boolean => {
       if (
         text.length === 0 ||
-        isConnecting ||
+        (isConnecting && !canQueueMessage) ||
         isComposerApprovalState ||
         pendingUserInputs.length > 0 ||
         projectSelectionRequired ||
@@ -4630,6 +4632,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     },
     [
       applyPromptReplacement,
+      canQueueMessage,
       isComposerApprovalState,
       isConnecting,
       pendingUserInputs.length,
@@ -5750,7 +5753,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                                 : "Ask anything, @tag files/folders, $use skills, or / for commands"
                   }
                   disabled={
-                    isConnecting ||
+                    (isConnecting && !canQueueMessage) ||
                     isComposerApprovalState ||
                     projectSelectionRequired ||
                     isChoiceOnlyPendingQuestion ||
@@ -5888,8 +5891,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     preserveComposerFocusOnPointerDown={isMobileViewport || isComposerResting}
                     showSendWhileRunning
                     sendActionLabel={props.sendActionLabel}
-                    deliveryMode={props.deliveryMode}
-                    onDeliveryModeChange={props.onDeliveryModeChange}
+                    canQueueMessage={canQueueMessage}
                     onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
                     onInterrupt={handleInterruptPrimaryAction}
                     onImplementPlanInNewThread={handleImplementPlanInNewThreadPrimaryAction}

@@ -2,7 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import {
-  ArrowUpIcon,
+  ArrowUpRightIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   InfoIcon,
@@ -21,15 +21,22 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../components/ui/tooltip"
 import { useEnvironment } from "../state/environments";
 import { useThreadShell } from "../state/entities";
 import { environmentShell } from "../state/shell";
-import { editOutboxMessage, outboxDeliveryState, type OutboxMessage } from "./model";
+import {
+  editOutboxMessage,
+  outboxDeliveryState,
+  type OutboxDeliveryState,
+  type OutboxMessage,
+} from "./model";
 import { mutateOutbox, useOutbox } from "./store";
 
 function OutboxRow({
   message,
   delivery,
+  sendNowDelivery,
 }: {
   message: OutboxMessage;
-  delivery: ReturnType<typeof outboxDeliveryState>;
+  delivery: OutboxDeliveryState;
+  sendNowDelivery: OutboxDeliveryState;
 }) {
   const [text, setText] = useState(message.input.message.text);
   const [error, setError] = useState<string | null>(null);
@@ -51,6 +58,15 @@ function OutboxRow({
   }
   const editable = message.status === "waiting" || message.status === "paused";
   const attachments = message.localAttachments ?? message.input.message.attachments;
+  const sendNowUnavailable = sendNowDelivery !== "send";
+  const sendNowHint =
+    sendNowDelivery === "offline"
+      ? "Reconnect and wait for this thread to sync before sending."
+      : sendNowDelivery === "unavailable"
+        ? "This thread is unavailable."
+        : sendNowUnavailable
+          ? "Resolve the pending approval or question before sending."
+          : "Send ahead of the queue. A running task receives this at its next supported boundary.";
   const status =
     message.status === "sending"
       ? "Submitting"
@@ -128,21 +144,34 @@ function OutboxRow({
               <Tooltip>
                 <TooltipTrigger
                   render={
-                    <Button
-                      type="button"
-                      size="icon-xs"
-                      variant="ghost"
-                      disabled={busy}
-                      aria-label="Send queued message now"
-                      onClick={() =>
-                        void change((current) => ({ ...current, status: "waiting", sendNow: true }))
+                    <span
+                      className="inline-flex rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      tabIndex={sendNowUnavailable ? 0 : undefined}
+                      aria-label={
+                        sendNowUnavailable ? `Send now unavailable. ${sendNowHint}` : undefined
                       }
                     />
                   }
                 >
-                  <ArrowUpIcon className="size-3.5" />
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="outline"
+                    className="group h-6 gap-1 rounded-full px-2 text-[11px] duration-150 motion-reduce:transition-none motion-reduce:[&:active:not([aria-haspopup])]:scale-100 sm:text-[11px]"
+                    disabled={busy || sendNowUnavailable}
+                    aria-label="Send queued message now"
+                    onClick={() =>
+                      void change((current) => ({ ...current, status: "waiting", sendNow: true }))
+                    }
+                  >
+                    <ArrowUpRightIcon
+                      aria-hidden="true"
+                      className="size-3.5 text-current transition-transform duration-150 motion-safe:group-hover:-translate-y-px motion-safe:group-hover:translate-x-px motion-reduce:transition-none"
+                    />
+                    Send now
+                  </Button>
                 </TooltipTrigger>
-                <TooltipPopup>Send now at OMP's next message boundary</TooltipPopup>
+                <TooltipPopup className="max-w-64">{sendNowHint}</TooltipPopup>
               </Tooltip>
               <Menu>
                 <MenuTrigger
@@ -206,7 +235,7 @@ function OutboxRow({
                   <XIcon className="size-3.5" />
                 </TooltipTrigger>
                 <TooltipPopup>
-                  Remove from this queue. Does not cancel a task already received by OMP.
+                  Remove from this queue. Does not cancel a task already received by the agent.
                 </TooltipPopup>
               </Tooltip>
             </>
@@ -335,6 +364,12 @@ export function OutboxPanel({
                   message={message}
                   delivery={outboxDeliveryState(
                     message,
+                    thread ?? undefined,
+                    environment?.connection.phase === "connected",
+                    shell.status === "live",
+                  )}
+                  sendNowDelivery={outboxDeliveryState(
+                    { ...message, status: "waiting", sendNow: true },
                     thread ?? undefined,
                     environment?.connection.phase === "connected",
                     shell.status === "live",
