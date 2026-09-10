@@ -52,7 +52,7 @@ export function SidebarUpdateReleaseNotes({
   readonly state: DesktopUpdateState;
   readonly tooltip: string;
 }) {
-  if (state.channel !== "nightly" || state.releaseNotes.length === 0) {
+  if (state.releaseNotes.length === 0) {
     return <>{tooltip}</>;
   }
 

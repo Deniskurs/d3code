@@ -40,7 +40,7 @@ export function shouldUseSidebarUpdateReleaseNotesPopover(
   showUpdateDetails: boolean,
   state: DesktopUpdateState | null,
 ): boolean {
-  return showUpdateDetails && state?.channel === "nightly" && state.releaseNotes.length > 0;
+  return showUpdateDetails && state !== null && state.releaseNotes.length > 0;
 }
 
 export function handleSidebarUpdateReleaseNotesPopoverOpenChange(

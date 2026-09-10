@@ -118,8 +118,19 @@ export function prepareCandidate({ cwd, upstreamRef, tag, version, bundlePath })
   return { baseSha, sha, version, tag };
 }
 
-export function releaseNotes(version, tag) {
-  return `D3 Code ${version} (Devis) for Apple Silicon Macs.\n\nIncludes upstream nightly ${tag}, with D3 branding and OMP integration retained.\n\nDownload D3-Code-mac-arm64.dmg and drag D3 Code (Devis) into Applications. Existing signed installations can use Check for updates on the Devis track.\n\nThis release passed D3's automated tests, package typechecks, icon checks, signing, notarization, and Gatekeeper verification.\n`;
+export function releaseNotes(version, tag, subjects = []) {
+  const changes = subjects.flatMap((subject) => {
+    const match = /^(feat|fix)(?:\(([^)]+)\))?!?: (.+)$/.exec(subject);
+    if (!match || ["ci", "build", "deps", "test"].includes(match[2])) return [];
+    return [match[3][0].toUpperCase() + match[3].slice(1)];
+  });
+  const items = [
+    ...new Set([
+      `Updated to upstream nightly ${tag}, with D3 branding and OMP integration retained.`,
+      ...changes,
+    ]),
+  ];
+  return `## What's changed\n\n${items.map((item) => `- ${item}`).join("\n")}\n\n## Full changelog\n\n[All D3 releases](https://github.com/Deniskurs/d3code/releases)\n\nD3 Code ${version} (Devis) for Apple Silicon Macs. Download D3-Code-mac-arm64.dmg and drag D3 Code (Devis) into Applications. Existing signed installations can use Check for updates on the Devis track.\n\nThis release passed D3's automated tests, package typechecks, icon checks, signing, notarization, and Gatekeeper verification.\n`;
 }
 
 export function main() {
@@ -186,9 +197,30 @@ export function main() {
       git(["bundle", "create", bundlePath, "HEAD", "^HEAD~1"], cwd);
       result = { baseSha: sha, sha, version: plan.version, tag: plan.tag };
     } else result = prepareCandidate({ cwd, upstreamRef, ...plan, bundlePath });
+    const previousRelease = releases
+      .filter(
+        (release) =>
+          !release.draft &&
+          !release.prerelease &&
+          versionPattern.test(release.tag_name.slice(1)) &&
+          compareVersions(release.tag_name.slice(1), result.version) < 0,
+      )
+      .sort((a, b) => compareVersions(b.tag_name, a.tag_name))[0];
+    const subjects = previousRelease
+      ? git(
+          [
+            "log",
+            "--first-parent",
+            "--reverse",
+            "--format=%s",
+            `${previousRelease.tag_name}..${result.sha}`,
+          ],
+          cwd,
+        ).split("\n")
+      : [];
     NodeFS.writeFileSync(
       NodePath.join(artifactDirectory, "release-notes.md"),
-      releaseNotes(result.version, result.tag),
+      releaseNotes(result.version, result.tag, subjects),
     );
     output({
       ready: "true",

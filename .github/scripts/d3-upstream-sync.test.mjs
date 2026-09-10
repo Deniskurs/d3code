@@ -4,7 +4,7 @@ import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
-import { nextVersion, planSync, prepareCandidate } from "./d3-upstream-sync.mjs";
+import { nextVersion, planSync, prepareCandidate, releaseNotes } from "./d3-upstream-sync.mjs";
 
 const oldTag = "v0.0.41-nightly.20260909.1439";
 const newTag = "v0.0.41-nightly.20260909.1461";
@@ -165,3 +165,22 @@ NodeTest.test("source conflicts stop the merge without losing D3 changes", (t) =
   );
   NodeAssert.equal(git("status", "--porcelain"), "");
 });
+
+NodeTest.test(
+  "release previews include product changes and keep installation details outside the preview",
+  () => {
+    const notes = releaseNotes("0.1.4", newTag, [
+      "feat(brand): add the Devis artwork",
+      "fix(web): offer steering across providers",
+      "fix(web): offer steering across providers",
+      "fix(ci): repair the checkout",
+      "chore(d3): sync nightly",
+      "Merge upstream",
+    ]);
+    const preview = notes.split("## Full changelog")[0];
+    NodeAssert.match(preview, /Add the Devis artwork/);
+    NodeAssert.equal(preview.match(/Offer steering across providers/g).length, 1);
+    NodeAssert.doesNotMatch(preview, /repair the checkout|Download|Merge upstream/);
+    NodeAssert.match(notes, /Download D3-Code-mac-arm64.dmg/);
+  },
+);

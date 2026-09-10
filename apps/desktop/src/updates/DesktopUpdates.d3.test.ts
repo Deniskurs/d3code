@@ -30,16 +30,33 @@ it.effect(
           assert.equal((yield* settings.get).updateChannel, "latest");
           assert.equal((yield* updates.getState).channel, "latest");
           assert.deepEqual(harness.channels(), ["latest"]);
+          assert.equal(harness.fullChangelog(), true);
           assert.equal((yield* updates.setChannel("nightly")).channel, "latest");
           assert.equal((yield* settings.get).updateChannel, "latest");
           const result = yield* updates.check("manual");
           assert.equal(result.checked, true);
           assert.equal(harness.checkCount(), 1);
-          harness.emit("update-available", { version: "1.2.4" });
+          harness.emit("update-available", {
+            version: "1.2.4",
+            releaseNotes: [
+              {
+                version: "1.2.4",
+                note: "## Changes\n- New Devis theme\n- Shared steering controls",
+              },
+            ],
+          });
           yield* flushCallbacks;
           const state = yield* updates.getState;
           assert.equal(state.status, "available");
           assert.equal(state.availableVersion, "1.2.4");
+          assert.deepEqual(state.releaseNotes, [
+            {
+              version: "1.2.4",
+              items: ["Shared steering controls", "New Devis theme"],
+              totalItems: 2,
+            },
+          ]);
+          assert.deepEqual(harness.sentStates.at(-1)?.releaseNotes, state.releaseNotes);
         }).pipe(Effect.provide(harness.layer));
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
