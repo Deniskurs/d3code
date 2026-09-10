@@ -8,14 +8,19 @@ import { it } from "@effect/vitest";
 import { ThreadId } from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Effect from "effect/Effect";
+import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
 import * as Scope from "effect/Scope";
 import * as Exit from "effect/Exit";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 import { expect } from "vite-plus/test";
 import wire from "../testFixtures/codexMultiAgentWire.json" with { type: "json" };
 import { makeCodexSessionRuntime } from "./CodexSessionRuntime.ts";
-import { nativeComputerUseNotifyExecutable } from "./CodexComputerUseLifecycle.ts";
+import {
+  makeCodexComputerUseLifecycle,
+  nativeComputerUseNotifyExecutable,
+} from "./CodexComputerUseLifecycle.ts";
 
 const root = wire.rootThreadId;
 const peer = NodePath.join(
@@ -282,6 +287,44 @@ it.layer(NodeServices.layer)("Codex computer-use cleanup", (it) => {
     }),
   );
 });
+
+it.effect("allows slow MCP discovery but bounds an unresponsive cleanup", () =>
+  Effect.gen(function* () {
+    const inventoryStarted = yield* Deferred.make<void>();
+    const fallbackStarted = yield* Deferred.make<void>();
+    let warned = false;
+    const lifecycle = makeCodexComputerUseLifecycle({
+      client: {
+        request: (method) =>
+          Effect.gen(function* () {
+            yield* Deferred.succeed(
+              method === "mcpServerStatus/list" ? inventoryStarted : fallbackStarted,
+              undefined,
+            );
+            return yield* Effect.never;
+          }),
+      },
+      runNativeCleanup: () => Effect.void,
+      onWarning: () =>
+        Effect.sync(() => {
+          warned = true;
+        }),
+    });
+    yield* lifecycle.observe("item/completed", call(root, "slow-turn").params, root);
+    const cleanup = yield* lifecycle
+      .observe("turn/completed", ended(root, "slow-turn").params, root)
+      .pipe(Effect.forkChild);
+    yield* Deferred.await(inventoryStarted);
+    yield* TestClock.adjust("4 seconds");
+    expect(yield* Deferred.isDone(fallbackStarted)).toBe(false);
+    expect(warned).toBe(false);
+    yield* TestClock.adjust("6 seconds");
+    yield* Deferred.await(fallbackStarted);
+    yield* TestClock.adjust("3 seconds");
+    yield* Fiber.join(cleanup);
+    expect(warned).toBe(true);
+  }),
+);
 
 it("only accepts the native helper's notify command", () => {
   expect(

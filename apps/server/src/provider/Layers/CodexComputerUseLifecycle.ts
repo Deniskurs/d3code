@@ -77,7 +77,11 @@ export function makeCodexComputerUseLifecycle(input: {
           if (cursor && seen.has(cursor)) break;
           if (cursor) seen.add(cursor);
         } while (cursor);
-      }).pipe(Effect.timeout("3 seconds"), Effect.ignore);
+      }).pipe(
+        // Inventory can wait for other configured MCP servers to initialize.
+        Effect.timeout("10 seconds"),
+        Effect.catch((error) => Effect.logWarning("Codex computer-use MCP cleanup failed", error)),
+      );
 
       // The legacy Mac helper has a CLI notification endpoint rather than an MCP cleanup tool.
       if (pending.size > 0)
@@ -87,7 +91,12 @@ export function makeCodexComputerUseLifecycle(input: {
           if (!executable) return;
           yield* input.runNativeCleanup(executable, turn);
           pending.clear();
-        }).pipe(Effect.timeout("3 seconds"), Effect.ignore);
+        }).pipe(
+          Effect.timeout("3 seconds"),
+          Effect.catch((error) =>
+            Effect.logWarning("Codex native computer-use cleanup failed", error),
+          ),
+        );
       if (pending.size > 0) yield* input.onWarning(turn);
     });
 
