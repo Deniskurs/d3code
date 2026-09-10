@@ -172,6 +172,7 @@ import {
   shouldUseRestingComposerLayout,
 } from "../composerFooterLayout";
 import { measureRestingComposerControls } from "./restingComposerControlsMeasurement";
+import { ComposerActionMotion } from "./ComposerActionMotion";
 import { observeResponsiveBreakpointFade, usePanelAnimationSettings } from "../../panelAnimations";
 import { type ComposerPromptEditorHandle, ComposerPromptEditor } from "../ComposerPromptEditor";
 import { ProviderModelPicker } from "./ProviderModelPicker";
@@ -1147,16 +1148,20 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
 }) {
   return (
     <>
-      {props.activeContextWindow ? (
-        <ContextWindowMeter
-          usage={props.activeContextWindow}
-          modelDisplayName={props.activeThreadModelDisplayName}
-          onCompact={props.onCompactContext}
-          compactDisabled={props.compactDisabled}
-          compactDisabledReason={props.compactDisabledReason}
-        />
-      ) : props.reserveContextWindowMeter ? (
-        <ContextWindowMeterPlaceholder />
+      {props.activeContextWindow || props.reserveContextWindowMeter ? (
+        <span data-composer-action="context-meter" className="inline-flex shrink-0 items-center">
+          {props.activeContextWindow ? (
+            <ContextWindowMeter
+              usage={props.activeContextWindow}
+              modelDisplayName={props.activeThreadModelDisplayName}
+              onCompact={props.onCompactContext}
+              compactDisabled={props.compactDisabled}
+              compactDisabledReason={props.compactDisabledReason}
+            />
+          ) : (
+            <ContextWindowMeterPlaceholder />
+          )}
+        </span>
       ) : null}
       <ComposerPrimaryActions
         compact={props.compact}
@@ -5815,7 +5820,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 </div>
 
                 {/* Right side: send / stop button */}
-                <div
+                <ComposerActionMotion
                   data-chat-composer-actions="right"
                   data-chat-composer-transition-actions="true"
                   data-chat-composer-primary-actions-compact={
@@ -5841,6 +5846,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         <TooltipTrigger
                           render={
                             <Button
+                              data-composer-action="attachment"
                               type="button"
                               variant="ghost"
                               size="icon-sm"
@@ -5893,7 +5899,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     compactDisabledReason={resolvedCompactDisabledReason}
                     {...(compactCommandAvailable ? { onCompactContext: compactThreadContext } : {})}
                   />
-                </div>
+                </ComposerActionMotion>
               </div>
             )}
           </div>

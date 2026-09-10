@@ -7,6 +7,7 @@ import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger, MenuRadioGroup, MenuRadioItem } from "../ui/menu";
 import { Spinner } from "../ui/spinner";
 import { composerFloatingLayerProps } from "./composerEventScope";
+import { ComposerActionMotion } from "./ComposerActionMotion";
 
 interface PendingActionState {
   questionIndex: number;
@@ -94,9 +95,11 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
 
   const renderStopGenerationButton = (insidePendingAction: boolean) => (
     <button
+      key="stop"
+      data-composer-action="stop"
       type="button"
       className={cn(
-        "flex cursor-pointer items-center justify-center rounded-full bg-destructive/90 text-white shadow-xs shadow-destructive/24 inset-shadow-[0_1px_--theme(--color-white/16%)] transition-all duration-150 hover:bg-destructive hover:scale-105 active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none",
+        "flex cursor-pointer items-center justify-center rounded-full bg-destructive/90 text-white shadow-xs shadow-destructive/24 inset-shadow-[0_1px_--theme(--color-white/16%)] transition-[background-color,box-shadow,scale] duration-150 motion-reduce:transition-none hover:bg-destructive hover:scale-105 active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none",
         insidePendingAction
           ? "size-8 sm:size-7"
           : showSendWhileRunning && hasSendableContent
@@ -113,218 +116,241 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
     </button>
   );
 
-  if (pendingAction) {
-    return (
-      <div className={cn("flex items-center justify-end", compact ? "gap-1.5" : "gap-2")}>
-        {isRunning ? renderStopGenerationButton(true) : null}
-        {pendingAction.questionIndex > 0 ? (
-          compact ? (
-            <Button
-              size="icon-sm"
-              variant="outline"
-              className="rounded-full"
-              {...pointerFocusProps}
-              onClick={onPreviousPendingQuestion}
-              disabled={pendingAction.isResponding}
-              aria-label="Previous question"
-            >
-              <ChevronLeftIcon className="size-3.5" />
-            </Button>
-          ) : (
-            <Button
-              size="sm"
-              variant="outline"
-              className="rounded-full"
-              {...pointerFocusProps}
-              onClick={onPreviousPendingQuestion}
-              disabled={pendingAction.isResponding}
-            >
-              Previous
-            </Button>
-          )
-        ) : null}
-        <Button
-          type="submit"
-          size="sm"
-          className={cn(
-            "rounded-full bg-message-action text-message-action-foreground hover:bg-message-action-hover",
-            compact ? "px-3" : "px-4",
-          )}
-          {...pointerFocusProps}
-          disabled={
-            isEnvironmentUnavailable ||
-            pendingAction.isResponding ||
-            (pendingAction.isLastQuestion ? !pendingAction.isComplete : !pendingAction.canAdvance)
-          }
-        >
-          {formatPendingPrimaryActionLabel({
-            compact,
-            isLastQuestion: pendingAction.isLastQuestion,
-            isResponding: pendingAction.isResponding,
-            questionIndex: pendingAction.questionIndex,
-          })}
-        </Button>
-      </div>
-    );
-  }
-
-  if (showPlanFollowUpPrompt) {
-    if (promptHasText) {
+  const renderActions = () => {
+    if (pendingAction) {
+      const primaryActionLabel = formatPendingPrimaryActionLabel({
+        compact,
+        isLastQuestion: pendingAction.isLastQuestion,
+        isResponding: pendingAction.isResponding,
+        questionIndex: pendingAction.questionIndex,
+      });
       return (
-        <Button
-          type="submit"
-          size="sm"
-          className={cn(
-            "rounded-full bg-message-action text-message-action-foreground hover:bg-message-action-hover",
-            compact ? "h-9 px-3 sm:h-8" : "h-9 px-4 sm:h-8",
-          )}
-          {...pointerFocusProps}
-          disabled={isSendBusy || isSendDisabled || isConnecting || isEnvironmentUnavailable}
-        >
-          {isConnecting || isSendBusy ? "Sending..." : "Refine"}
-        </Button>
+        <div className={cn("flex items-center justify-end", compact ? "gap-1.5" : "gap-2")}>
+          {isRunning ? renderStopGenerationButton(true) : null}
+          {pendingAction.questionIndex > 0 ? (
+            compact ? (
+              <Button
+                key="previous"
+                data-composer-action="previous"
+                data-composer-action-version="icon"
+                size="icon-sm"
+                variant="outline"
+                className="rounded-full"
+                {...pointerFocusProps}
+                onClick={onPreviousPendingQuestion}
+                disabled={pendingAction.isResponding}
+                aria-label="Previous question"
+              >
+                <ChevronLeftIcon className="size-3.5" />
+              </Button>
+            ) : (
+              <Button
+                key="previous"
+                data-composer-action="previous"
+                data-composer-action-version="label"
+                size="sm"
+                variant="outline"
+                className="rounded-full"
+                {...pointerFocusProps}
+                onClick={onPreviousPendingQuestion}
+                disabled={pendingAction.isResponding}
+              >
+                Previous
+              </Button>
+            )
+          ) : null}
+          <Button
+            key="answer"
+            data-composer-action="answer"
+            data-composer-action-version={primaryActionLabel}
+            type="submit"
+            size="sm"
+            className={cn(
+              "rounded-full bg-message-action text-message-action-foreground hover:bg-message-action-hover",
+              compact ? "px-3" : "px-4",
+            )}
+            {...pointerFocusProps}
+            disabled={
+              isEnvironmentUnavailable ||
+              pendingAction.isResponding ||
+              (pendingAction.isLastQuestion ? !pendingAction.isComplete : !pendingAction.canAdvance)
+            }
+          >
+            {primaryActionLabel}
+          </Button>
+        </div>
       );
     }
 
-    return (
-      <div data-chat-composer-implement-actions="true" className="flex items-center justify-end">
-        <Button
-          type="submit"
-          size="sm"
-          className="h-9 rounded-l-full rounded-r-none bg-message-action px-4 text-message-action-foreground hover:bg-message-action-hover sm:h-8"
-          {...pointerFocusProps}
-          disabled={isSendBusy || isSendDisabled || isConnecting || isEnvironmentUnavailable}
+    if (showPlanFollowUpPrompt) {
+      return (
+        <div
+          data-chat-composer-implement-actions={promptHasText ? undefined : "true"}
+          className="flex items-center justify-end"
         >
-          {isConnecting || isSendBusy ? "Sending..." : "Implement"}
-        </Button>
+          <Button
+            key="plan"
+            data-composer-action="plan"
+            data-composer-action-version={`${promptHasText ? "refine" : "implement"}:${isConnecting || isSendBusy ? "sending" : "ready"}`}
+            type="submit"
+            size="sm"
+            className={cn(
+              "h-9 bg-message-action text-message-action-foreground hover:bg-message-action-hover sm:h-8",
+              promptHasText
+                ? compact
+                  ? "rounded-full px-3"
+                  : "rounded-full px-4"
+                : "rounded-l-full rounded-r-none px-4",
+            )}
+            {...pointerFocusProps}
+            disabled={isSendBusy || isSendDisabled || isConnecting || isEnvironmentUnavailable}
+          >
+            {isConnecting || isSendBusy ? "Sending..." : promptHasText ? "Refine" : "Implement"}
+          </Button>
+          {promptHasText ? null : (
+            <Menu>
+              <MenuTrigger
+                render={
+                  <Button
+                    size="sm"
+                    data-composer-action="implementation-menu"
+                    variant="default"
+                    className="h-9 rounded-l-none rounded-r-full border-l-message-action-foreground/20 bg-message-action px-2 text-message-action-foreground hover:bg-message-action-hover sm:h-8"
+                    aria-label="Implementation actions"
+                    {...pointerFocusProps}
+                    disabled={
+                      isSendBusy || isSendDisabled || isConnecting || isEnvironmentUnavailable
+                    }
+                  />
+                }
+              >
+                <ChevronDownIcon className="size-3.5" />
+              </MenuTrigger>
+              <MenuPopup align="end" side="top" {...composerFloatingLayerProps}>
+                <MenuItem
+                  disabled={
+                    isSendBusy || isSendDisabled || isConnecting || isEnvironmentUnavailable
+                  }
+                  onClick={() => void onImplementPlanInNewThread()}
+                >
+                  Implement in a new thread
+                </MenuItem>
+              </MenuPopup>
+            </Menu>
+          )}
+        </div>
+      );
+    }
+
+    const sendButton = (
+      <button
+        key="send"
+        data-composer-action="send"
+        data-composer-action-version={`${sendActionLabel ?? ""}:${isConnecting || isSendBusy ? "busy" : "ready"}`}
+        type="submit"
+        className={cn(
+          "relative isolate flex h-9 w-9 items-center justify-center overflow-hidden rounded-full shadow-xs transition-[background-color,box-shadow,filter,opacity,scale] duration-150 motion-reduce:transition-none enabled:cursor-pointer enabled:inset-shadow-[0_1px_--theme(--color-white/16%)] hover:scale-105 active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none disabled:pointer-events-none disabled:opacity-30 disabled:shadow-none disabled:hover:scale-100 sm:h-8 sm:w-8",
+          sendActionLabel && "w-auto gap-1.5 px-3 sm:w-auto",
+          stageBackdropVariant
+            ? "bg-transparent text-white enabled:shadow-black/24 enabled:hover:brightness-110"
+            : "bg-message-action text-message-action-foreground enabled:shadow-message-action/24 hover:bg-message-action-hover",
+        )}
+        {...pointerFocusProps}
+        disabled={
+          isSendBusy ||
+          isSendDisabled ||
+          isConnecting ||
+          isEnvironmentUnavailable ||
+          !hasSendableContent
+        }
+        aria-label={
+          isEnvironmentUnavailable
+            ? "Environment disconnected"
+            : sendDisabledReason
+              ? sendDisabledReason
+              : isConnecting
+                ? "Connecting"
+                : isPreparingWorktree
+                  ? "Preparing worktree"
+                  : isSendBusy
+                    ? "Sending"
+                    : (sendActionLabel ?? "Send message")
+        }
+      >
+        {sendActionLabel ? <span className="text-xs font-medium">{sendActionLabel}</span> : null}
+        {stageBackdropVariant ? (
+          <span className="absolute inset-0 -z-10" aria-hidden="true">
+            <StageBackdropButtonArt variant={stageBackdropVariant} />
+          </span>
+        ) : null}
+        {isConnecting || isSendBusy ? (
+          <Spinner className="size-3.5" aria-hidden="true" />
+        ) : (
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+            <path
+              d="M7 11.5V2.5M7 2.5L3 6.5M7 2.5L11 6.5"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        )}
+      </button>
+    );
+
+    const sendActions = onDeliveryModeChange ? (
+      <div className="flex items-center gap-0.5">
         <Menu>
           <MenuTrigger
             render={
               <Button
-                size="sm"
-                variant="default"
-                className="h-9 rounded-l-none rounded-r-full border-l-message-action-foreground/20 bg-message-action px-2 text-message-action-foreground hover:bg-message-action-hover sm:h-8"
-                aria-label="Implementation actions"
-                {...pointerFocusProps}
-                disabled={isSendBusy || isSendDisabled || isConnecting || isEnvironmentUnavailable}
+                type="button"
+                data-composer-action="delivery-menu"
+                size="icon-xs"
+                variant="ghost"
+                aria-label="Choose message delivery"
+                disabled={isSendBusy || isConnecting || isEnvironmentUnavailable}
               />
             }
           >
             <ChevronDownIcon className="size-3.5" />
           </MenuTrigger>
           <MenuPopup align="end" side="top" {...composerFloatingLayerProps}>
-            <MenuItem
-              disabled={isSendBusy || isSendDisabled || isConnecting || isEnvironmentUnavailable}
-              onClick={() => void onImplementPlanInNewThread()}
+            <MenuRadioGroup
+              value={deliveryMode}
+              onValueChange={(value) => {
+                if (value === "steer" || value === "queue") onDeliveryModeChange(value);
+              }}
             >
-              Implement in a new thread
-            </MenuItem>
+              <MenuRadioItem closeOnClick value="steer">
+                Steer current task
+              </MenuRadioItem>
+              <MenuRadioItem closeOnClick value="queue">
+                Queue after task
+              </MenuRadioItem>
+            </MenuRadioGroup>
           </MenuPopup>
         </Menu>
+        {sendButton}
       </div>
+    ) : (
+      sendButton
     );
-  }
 
-  const sendButton = (
-    <button
-      type="submit"
-      className={cn(
-        "relative isolate flex h-9 w-9 items-center justify-center overflow-hidden rounded-full shadow-xs transition-all duration-150 enabled:cursor-pointer enabled:inset-shadow-[0_1px_--theme(--color-white/16%)] hover:scale-105 active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none disabled:pointer-events-none disabled:opacity-30 disabled:shadow-none disabled:hover:scale-100 sm:h-8 sm:w-8",
-        sendActionLabel && "w-auto gap-1.5 px-3 sm:w-auto",
-        stageBackdropVariant
-          ? "bg-transparent text-white enabled:shadow-black/24 enabled:hover:brightness-110"
-          : "bg-message-action text-message-action-foreground enabled:shadow-message-action/24 hover:bg-message-action-hover",
-      )}
-      {...pointerFocusProps}
-      disabled={
-        isSendBusy ||
-        isSendDisabled ||
-        isConnecting ||
-        isEnvironmentUnavailable ||
-        !hasSendableContent
-      }
-      aria-label={
-        isEnvironmentUnavailable
-          ? "Environment disconnected"
-          : sendDisabledReason
-            ? sendDisabledReason
-            : isConnecting
-              ? "Connecting"
-              : isPreparingWorktree
-                ? "Preparing worktree"
-                : isSendBusy
-                  ? "Sending"
-                  : (sendActionLabel ?? "Send message")
-      }
-    >
-      {sendActionLabel ? <span className="text-xs font-medium">{sendActionLabel}</span> : null}
-      {stageBackdropVariant ? (
-        <span className="absolute inset-0 -z-10" aria-hidden="true">
-          <StageBackdropButtonArt variant={stageBackdropVariant} />
-        </span>
-      ) : null}
-      {isConnecting || isSendBusy ? (
-        <Spinner className="size-3.5" aria-hidden="true" />
-      ) : (
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-          <path
-            d="M7 11.5V2.5M7 2.5L3 6.5M7 2.5L11 6.5"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      )}
-    </button>
-  );
-
-  const sendActions = onDeliveryModeChange ? (
-    <div className="flex items-center gap-0.5">
-      <Menu>
-        <MenuTrigger
-          render={
-            <Button
-              type="button"
-              size="icon-xs"
-              variant="ghost"
-              aria-label="Choose message delivery"
-              disabled={isSendBusy || isConnecting || isEnvironmentUnavailable}
-            />
-          }
-        >
-          <ChevronDownIcon className="size-3.5" />
-        </MenuTrigger>
-        <MenuPopup align="end" side="top" {...composerFloatingLayerProps}>
-          <MenuRadioGroup
-            value={deliveryMode}
-            onValueChange={(value) => {
-              if (value === "steer" || value === "queue") onDeliveryModeChange(value);
-            }}
-          >
-            <MenuRadioItem closeOnClick value="steer">
-              Steer current task
-            </MenuRadioItem>
-            <MenuRadioItem closeOnClick value="queue">
-              Queue after task
-            </MenuRadioItem>
-          </MenuRadioGroup>
-        </MenuPopup>
-      </Menu>
-      {sendButton}
-    </div>
-  ) : (
-    sendButton
-  );
-
-  if (!isRunning) {
-    return sendActions;
-  }
+    return (
+      <>
+        {isRunning ? renderStopGenerationButton(false) : null}
+        {!isRunning || (showSendWhileRunning && hasSendableContent) ? sendActions : null}
+      </>
+    );
+  };
 
   return (
-    <>
-      {renderStopGenerationButton(false)}
-      {showSendWhileRunning && hasSendableContent ? sendActions : null}
-    </>
+    <ComposerActionMotion
+      className={cn("flex items-center justify-end", compact ? "gap-1.5" : "gap-2")}
+    >
+      {renderActions()}
+    </ComposerActionMotion>
   );
 });
