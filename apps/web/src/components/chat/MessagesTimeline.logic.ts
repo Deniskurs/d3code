@@ -47,6 +47,7 @@ function singleToolCallLabel(entry: WorkLogEntry): string {
 }
 
 export function workEntryDisplayLabel(entry: WorkLogEntry, workspaceRoot: string | undefined) {
+  if (entry.sourceActivityKind?.startsWith("reasoning.")) return "Thought process";
   const toolPresentation = resolveWorkEntryToolPresentation(entry);
   if (toolPresentation) return toolPresentation.displayName;
   if (entry.command) return entry.command;
@@ -67,6 +68,9 @@ export function liveWorkEntryLabel(
   workspaceRoot: string | undefined,
   active: boolean,
 ) {
+  if (entry.sourceActivityKind?.startsWith("reasoning.")) {
+    return active ? "Thinking" : "Thought process";
+  }
   const status = liveActivityToolStatus(entry.toolLifecycleStatus, active);
   const toolPresentation = resolveWorkEntryToolPresentation({
     ...entry,
@@ -88,6 +92,12 @@ export function liveWorkEntryLabel(
     return `${verb} ${commandProgramName(command) ?? "command"}`;
   }
   return workEntryDisplayLabel(entry, workspaceRoot);
+}
+
+/** Keep the live preview small even when the provider returns a long thought block. */
+export function liveReasoningPreview(entry: WorkLogEntry): string | undefined {
+  if (entry.sourceActivityKind !== "reasoning.updated") return;
+  return entry.detail?.trim().slice(-600);
 }
 
 export function workEntryIsVisibleInGroup(

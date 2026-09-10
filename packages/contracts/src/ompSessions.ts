@@ -8,6 +8,7 @@ export const OmpSavedSession = Schema.Struct({
   title: Schema.optional(Schema.String),
   updatedAt: Schema.optional(Schema.String),
   threadId: Schema.optional(ThreadId),
+  terminalHandoff: Schema.optional(Schema.Boolean),
 });
 export const OmpHistoryMessage = Schema.Struct({
   nativeId: Schema.optional(Schema.String),
@@ -22,6 +23,7 @@ export const OmpSessionsReadInput = Schema.Struct({
   threadId: Schema.optional(ThreadId),
   sessionId: Schema.optional(TrimmedNonEmptyString),
   cursor: Schema.optional(Schema.String),
+  scope: Schema.optional(Schema.Literals(["project", "all"])),
 });
 export type OmpSessionsReadInput = typeof OmpSessionsReadInput.Type;
 export const OmpSessionsReadResult = Schema.Struct({
@@ -30,6 +32,8 @@ export const OmpSessionsReadResult = Schema.Struct({
   messages: Schema.Array(OmpHistoryMessage),
   resumeCommand: Schema.optional(Schema.String),
   supportsFork: Schema.Boolean,
+  supportsTerminal: Schema.optional(Schema.Boolean),
+  currentSession: Schema.optional(OmpSavedSession),
 });
 export type OmpSessionsReadResult = typeof OmpSessionsReadResult.Type;
 export const OmpSessionsActionInput = Schema.Struct({
@@ -37,7 +41,8 @@ export const OmpSessionsActionInput = Schema.Struct({
   projectId: ProjectId,
   threadId: Schema.optional(ThreadId),
   sessionId: TrimmedNonEmptyString,
-  action: Schema.Literals(["open", "fork", "refresh", "handoff"]),
+  action: Schema.Literals(["open", "fork", "refresh", "handoff", "terminal"]),
+  terminalId: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(128))),
 });
 export type OmpSessionsActionInput = typeof OmpSessionsActionInput.Type;
 export const OmpSessionsActionResult = Schema.Struct({
@@ -46,6 +51,7 @@ export const OmpSessionsActionResult = Schema.Struct({
   resumeCommand: Schema.String,
   importedMessages: Schema.Number,
   completedAt: IsoDateTime,
+  terminalId: Schema.optional(Schema.String),
 });
 export class OmpSessionsError extends Schema.TaggedError<OmpSessionsError>()("OmpSessionsError", {
   message: Schema.String,

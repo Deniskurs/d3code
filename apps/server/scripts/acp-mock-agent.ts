@@ -655,6 +655,14 @@ const program = Effect.gen(function* () {
     Effect.gen(function* () {
       const requestedSessionId = String(request.sessionId ?? sessionId);
       promptCount += 1;
+      if (process.env.T3_ACP_EMIT_THINKING === "1") {
+        for (const text of ["Checking the project. ", "Then I will explain the result."]) {
+          yield* agent.client.sessionUpdate({
+            sessionId: requestedSessionId,
+            update: { sessionUpdate: "agent_thought_chunk", content: { type: "text", text } },
+          });
+        }
+      }
       if (steeringTest && promptCount === 1) {
         yield* agent.client.sessionUpdate({
           sessionId: requestedSessionId,

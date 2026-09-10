@@ -46,6 +46,19 @@ describe("OMP session reconciliation", () => {
     );
     expect(command).not.toContain("private-value");
   });
+  it("replaces only the dedicated terminal shell and preserves its profile", () => {
+    const command = ompResumeCommand({
+      cwd: "/my project",
+      binaryPath: "/custom/omp",
+      launchArgs: "--profile work",
+      environment: { PI_CODING_AGENT_DIR: "/my profile" },
+      sessionId: "native-id",
+      replaceShell: true,
+    });
+    expect(command).toBe(
+      "cd '/my project' && exec env PI_CODING_AGENT_DIR='/my profile' '/custom/omp' '--profile' 'work' '--resume' 'native-id'",
+    );
+  });
   it("keeps native descriptions and argument hints while removing duplicates", () => {
     expect(
       nativeCommands([

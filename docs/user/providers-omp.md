@@ -24,6 +24,12 @@ Open the same D3 thread and send your next message. D3 saves the OMP session ref
 
 OMP owns the underlying session files. Keep the same OMP profile and its session data when continuing a thread. If that data is missing or the saved reference is invalid, resuming reports an error; the visible D3 history remains available. Create a new thread when you want a fresh session.
 
+Browse and continue terminal conversations from **OMP sessions**. See [Continue OMP sessions](install.md#continue-omp-sessions) for native commands, terminal handoff, and automatic return to chat.
+
+## Live output
+
+OMP replies appear as text arrives. When OMP publishes thinking text, D3 shows a short live preview in the activity history. Expand **Thought process** to inspect the retained text after it finishes. Long thought blocks retain their latest 8,000 characters. Thinking availability depends on the selected model and provider.
+
 ## Models and profiles
 
 Choose a discovered model in the composer. Add separate provider instances when projects need different OMP profiles or credentials. **Launch arguments** support settings such as `--profile work` and `--config ~/.omp/work.yml`.

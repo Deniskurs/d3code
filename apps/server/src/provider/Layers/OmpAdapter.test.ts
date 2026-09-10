@@ -392,6 +392,48 @@ faultingNativeLogOmpAdapterTestLayer("OmpAdapter notification recovery", (it) =>
 });
 
 ompAdapterTestLayer("OmpAdapterLive", (it) => {
+  it.effect("streams OMP text and completes native thinking before the answer", () =>
+    Effect.gen(function* () {
+      const adapter = yield* OmpAdapter;
+      const serverSettings = yield* ServerSettingsService;
+      const wrapperPath = yield* Effect.promise(() =>
+        makeMockAgentWrapper({ T3_ACP_EMIT_THINKING: "1" }),
+      );
+      yield* serverSettings.updateSettings({
+        providers: { omp: { binaryPath: wrapperPath, enabled: true } },
+      });
+      const threadId = ThreadId.make("omp-native-streaming");
+      const eventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.takeUntil((event) => event.type === "turn.completed"),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      yield* adapter.startSession({
+        threadId,
+        provider: ProviderDriverKind.make("omp"),
+        cwd: process.cwd(),
+        runtimeMode: "full-access",
+      });
+      yield* adapter.sendTurn({ threadId, input: "Explain the project" });
+      const events = Array.from(yield* Fiber.join(eventsFiber));
+      const completedThought = events.findIndex(
+        (event) => event.type === "item.completed" && event.payload.itemType === "reasoning",
+      );
+      const answer = events.findIndex((event) => event.type === "content.delta");
+      assert.isAtLeast(completedThought, 0);
+      assert.isAbove(answer, completedThought);
+      const thought = events[completedThought];
+      if (thought?.type === "item.completed")
+        assert.equal(
+          thought.payload.detail,
+          "Checking the project. Then I will explain the result.",
+        );
+      const delta = events[answer];
+      if (delta?.type === "content.delta") assert.equal(delta.payload.deliveryMode, "streaming");
+      yield* adapter.stopSession(threadId);
+    }),
+  );
+
   it.effect("publishes native commands and keeps terminal-only commands out of prompts", () =>
     Effect.gen(function* () {
       const wrapperPath = yield* Effect.promise(() =>

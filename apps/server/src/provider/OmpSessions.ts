@@ -1,5 +1,6 @@
 import {
   CommandId,
+  EventId,
   ProjectId,
   DEFAULT_RUNTIME_MODE,
   DEFAULT_PROVIDER_INTERACTION_MODE,
@@ -13,16 +14,20 @@ import {
   type OmpSessionsReadInput,
   type OmpSessionsReadResult,
   type OmpSessionsActionInput,
+  type TerminalEvent,
 } from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Predicate from "effect/Predicate";
 import * as FileSystem from "effect/FileSystem";
 import * as Semaphore from "effect/Semaphore";
+import * as Stream from "effect/Stream";
+import * as Queue from "effect/Queue";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import * as AcpSchema from "effect-acp/schema";
 import { ServerSettingsService } from "../serverSettings.ts";
@@ -46,6 +51,7 @@ import {
 } from "./ompSessionHistory.ts";
 import { createOmpSteering } from "./ompSteering.ts";
 import { findOmpSession } from "./ompSessionDiscovery.ts";
+import { TerminalManager } from "../terminal/Manager.ts";
 
 const NativePage = Schema.Struct({
   sessions: Schema.Array(OmpSavedSession),
@@ -82,6 +88,24 @@ export const makeOmpSessions = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const platform = yield* HostProcessPlatform;
   const operations = yield* Semaphore.make(1);
+  const terminals = yield* TerminalManager;
+  const managedTerminals = new Map<string, OmpSessionsActionInput>();
+  const knownTerminals = new Set<string>();
+  const terminalKey = (threadId: string, terminalId: string) =>
+    JSON.stringify([threadId, terminalId]);
+  yield* Effect.acquireRelease(
+    terminals.subscribeMetadata((event) =>
+      Effect.sync(() => {
+        if (event.type === "snapshot") {
+          for (const terminal of event.terminals)
+            knownTerminals.add(terminalKey(terminal.threadId, terminal.terminalId));
+        } else if (event.type === "upsert")
+          knownTerminals.add(terminalKey(event.terminal.threadId, event.terminal.terminalId));
+        else knownTerminals.delete(terminalKey(event.threadId, event.terminalId));
+      }),
+    ),
+    (unsubscribe) => Effect.sync(unsubscribe),
+  );
 
   const context = Effect.fn("OmpSessions.context")(function* (input: OmpSessionsReadInput) {
     const settings = yield* settingsService.getSettings;
@@ -117,13 +141,14 @@ export const makeOmpSessions = Effect.gen(function* () {
       mergeProviderInstanceEnvironment(instance?.environment),
       platform,
     );
-    const commandFor = (sessionId: string, sessionCwd = cwd) =>
+    const commandFor = (sessionId: string, sessionCwd = cwd, replaceShell = false) =>
       ompResumeCommand({
         cwd: sessionCwd,
         binaryPath: expandHomePath(config.binaryPath || "omp"),
         launchArgs: config.launchArgs,
         environment,
         sessionId,
+        replaceShell,
       });
     const bridge = yield* Effect.acquireRelease(
       Effect.tryPromise(() => createOmpSteering(platform)),
@@ -145,7 +170,10 @@ export const makeOmpSessions = Effect.gen(function* () {
       );
     const list = (cursor?: string) =>
       runtime
-        .request("session/list", { cwd, ...(cursor ? { cursor } : {}) })
+        .request("session/list", {
+          ...(input.scope === "all" ? {} : { cwd }),
+          ...(cursor ? { cursor } : {}),
+        })
         .pipe(Effect.flatMap(decodePage));
     const find = (sessionId: string) =>
       findOmpSession(sessionId, (cursor) =>
@@ -179,6 +207,14 @@ export const makeOmpSessions = Effect.gen(function* () {
       supportsFork: capabilities.fork !== undefined,
       projectRoot: project.value.workspaceRoot,
       canonicalCwd,
+      currentBinding: input.threadId
+        ? bindings.find(
+            (entry) =>
+              entry.threadId === input.threadId &&
+              entry.provider === "omp" &&
+              entry.providerInstanceId === input.instanceId,
+          )
+        : undefined,
     };
   });
 
@@ -200,9 +236,16 @@ export const makeOmpSessions = Effect.gen(function* () {
         // Return attached identity without loading a second native writer, even during a turn.
         if (binding)
           return {
-            sessions: [{ ...session, threadId: binding.threadId }],
+            sessions: [
+              {
+                ...session,
+                threadId: binding.threadId,
+                terminalHandoff: hasOmpTerminalHandoff(binding.runtimePayload),
+              },
+            ],
             messages: [],
             supportsFork: ctx.supportsFork,
+            supportsTerminal: platform !== "win32",
           } satisfies OmpSessionsReadResult;
         const history = yield* ctx.history(input.sessionId, session.cwd);
         return {
@@ -210,17 +253,38 @@ export const makeOmpSessions = Effect.gen(function* () {
           messages: history.messages,
           resumeCommand: ctx.commandFor(input.sessionId, session.cwd),
           supportsFork: ctx.supportsFork,
+          supportsTerminal: platform !== "win32",
         } satisfies OmpSessionsReadResult;
       }
       const page = yield* ctx.list(input.cursor);
+      const currentId = parseOmpResume(ctx.currentBinding?.resumeCursor)?.sessionId;
       return {
         sessions: page.sessions.map((session) => {
           const binding = ctx.bindingFor(session.sessionId);
-          return { ...session, ...(binding ? { threadId: binding.threadId } : {}) };
+          return {
+            ...session,
+            ...(binding
+              ? {
+                  threadId: binding.threadId,
+                  terminalHandoff: hasOmpTerminalHandoff(binding.runtimePayload),
+                }
+              : {}),
+          };
         }),
         ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
         messages: [],
         supportsFork: ctx.supportsFork,
+        supportsTerminal: platform !== "win32",
+        ...(currentId && ctx.currentBinding
+          ? {
+              currentSession: {
+                sessionId: currentId,
+                cwd: ctx.cwd,
+                threadId: ctx.currentBinding.threadId,
+                terminalHandoff: hasOmpTerminalHandoff(ctx.currentBinding.runtimePayload),
+              },
+            }
+          : {}),
       } satisfies OmpSessionsReadResult;
     }).pipe(Effect.scoped, Effect.timeout("45 seconds"), Effect.mapError(readableError));
 
@@ -241,13 +305,49 @@ export const makeOmpSessions = Effect.gen(function* () {
           resumeCommand: ctx.commandFor(sessionId, native.cwd),
           completedAt: now,
         });
+        const managed = [...managedTerminals.values()].find(
+          (entry) => entry.instanceId === input.instanceId && entry.sessionId === input.sessionId,
+        );
+        if (managed && input.action !== "open")
+          return yield* fail(
+            "This session is open in D3's OMP terminal. Exit OMP there to return to chat automatically.",
+          );
+        if (input.action === "terminal") {
+          if (hasOmpTerminalHandoff(binding?.runtimePayload))
+            return yield* fail(
+              "Exit OMP in the external terminal and choose Return to D3 before opening another terminal.",
+            );
+          if (!input.terminalId) return yield* fail("Choose a new terminal for this session.");
+          if (platform === "win32")
+            return yield* fail(
+              "Automatic terminal return is currently supported on macOS and Linux.",
+            );
+          if (knownTerminals.has(terminalKey(threadId, input.terminalId)))
+            return yield* fail("That terminal already exists. Open a new terminal for OMP.");
+        }
         if (binding) {
           const existing = yield* snapshots.getThreadDetailById(binding.threadId);
           if (Option.isNone(existing))
             return yield* fail("The linked D3 thread is no longer available.");
           if (existing.value.archivedAt || existing.value.deletedAt)
             return yield* fail("Restore the existing D3 thread before opening this session.");
-          if (input.action === "open") return result(0);
+          const checkpoint =
+            Predicate.isObject(binding.runtimePayload) &&
+            "ompHistoryCheckpoint" in binding.runtimePayload
+              ? binding.runtimePayload.ompHistoryCheckpoint
+              : undefined;
+          const canRefreshOnOpen =
+            isHistoryCheckpoint(checkpoint) &&
+            checkpoint.d3Count === existing.value.messages.length &&
+            checkpoint.d3Head === (existing.value.messages.at(-1)?.id ?? null);
+          if (
+            input.action === "open" &&
+            (!canRefreshOnOpen ||
+              hasOmpTerminalHandoff(binding.runtimePayload) ||
+              existing.value.session?.status === "running" ||
+              existing.value.session?.status === "starting")
+          )
+            return result(0);
           // Reopening the handoff instructions must preserve the original history boundary.
           if (input.action === "handoff" && hasOmpTerminalHandoff(binding.runtimePayload))
             return result(0);
@@ -258,7 +358,7 @@ export const makeOmpSessions = Effect.gen(function* () {
             return yield* fail("Wait for the current turn to finish before managing this session.");
           yield* providers.stopSession({ threadId: binding.threadId });
         }
-        if (input.action === "handoff" && !binding)
+        if ((input.action === "handoff" || input.action === "terminal") && !binding)
           return yield* fail("Open this session in D3 first.");
         if (input.action === "fork") {
           if (!ctx.supportsFork)
@@ -335,7 +435,7 @@ export const makeOmpSessions = Effect.gen(function* () {
             provider: ProviderDriverKind.make("omp"),
             providerInstanceId: input.instanceId,
             runtimePayload: {
-              ompTerminalHandoff: input.action === "handoff",
+              ompTerminalHandoff: input.action === "handoff" || input.action === "terminal",
               ompHistoryCheckpoint: {
                 nativeHead: history.at(-1)?.nativeId ?? null,
                 d3Head: ids.at(-1) ?? null,
@@ -343,8 +443,52 @@ export const makeOmpSessions = Effect.gen(function* () {
               },
             },
           });
-        if (input.action === "handoff") {
+        if (input.action === "handoff" || input.action === "terminal") {
           yield* saveCheckpoint(previous.map((message) => message.id));
+          if (input.action === "terminal" && input.terminalId) {
+            const terminalId = input.terminalId;
+            const key = terminalKey(threadId, terminalId);
+            managedTerminals.set(key, {
+              ...input,
+              ...(Option.isSome(existing) ? { projectId: existing.value.projectId } : {}),
+              threadId,
+              action: "refresh",
+            });
+            let opened = false;
+            yield* terminals
+              .open({
+                threadId,
+                terminalId,
+                cwd: native.cwd,
+                cols: 120,
+                rows: 36,
+                providerInstanceId: input.instanceId,
+              })
+              .pipe(
+                Effect.tap(() =>
+                  Effect.sync(() => {
+                    opened = true;
+                  }),
+                ),
+                Effect.andThen(
+                  terminals.write({
+                    threadId,
+                    terminalId,
+                    data: `${ctx.commandFor(sessionId, native.cwd, true)}\r`,
+                  }),
+                ),
+                Effect.onExit((exit) =>
+                  Exit.isSuccess(exit)
+                    ? Effect.void
+                    : Effect.gen(function* () {
+                        managedTerminals.delete(key);
+                        if (opened)
+                          yield* terminals.close({ threadId, terminalId }).pipe(Effect.ignore);
+                      }),
+                ),
+              );
+            return { ...result(0), terminalId };
+          }
           return result(0);
         }
         const runtimePayload = binding?.runtimePayload;
@@ -427,6 +571,59 @@ export const makeOmpSessions = Effect.gen(function* () {
         return result(suffix.length);
       }).pipe(Effect.scoped, Effect.timeout("90 seconds"), Effect.mapError(readableError)),
     );
+
+  const terminalEvents = yield* Effect.acquireRelease(
+    Queue.unbounded<TerminalEvent>(),
+    Queue.shutdown,
+  );
+  yield* Effect.acquireRelease(
+    terminals.subscribe((event) =>
+      (event.type === "exited" || event.type === "closed") &&
+      managedTerminals.has(terminalKey(event.threadId, event.terminalId))
+        ? Queue.offer(terminalEvents, event).pipe(Effect.asVoid)
+        : Effect.void,
+    ),
+    (unsubscribe) => Effect.sync(unsubscribe),
+  );
+  yield* Stream.fromQueue(terminalEvents).pipe(
+    Stream.runForEach((event) =>
+      Effect.gen(function* () {
+        const key = terminalKey(event.threadId, event.terminalId);
+        const input = managedTerminals.get(key);
+        if (!input) return;
+        managedTerminals.delete(key);
+        const now = DateTime.formatIso(yield* DateTime.now);
+        yield* action(input).pipe(
+          Effect.catch((error) =>
+            engine
+              .dispatch({
+                type: "thread.activity.append",
+                commandId: CommandId.make(
+                  `omp-terminal-sync:${event.threadId}:${event.terminalId}`,
+                ),
+                threadId: ThreadId.make(event.threadId),
+                createdAt: now,
+                activity: {
+                  id: EventId.make(`omp-terminal-sync:${event.threadId}:${event.terminalId}`),
+                  kind: "omp.session.sync.failed",
+                  tone: "error",
+                  summary: "OMP history needs attention",
+                  payload: { detail: error.message },
+                  turnId: null,
+                  createdAt: now,
+                },
+              })
+              .pipe(Effect.asVoid),
+          ),
+        );
+      }).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("OMP terminal history refresh failed", { cause }),
+        ),
+      ),
+    ),
+    Effect.forkScoped,
+  );
 
   return { read, action };
 });

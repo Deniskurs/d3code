@@ -23,6 +23,8 @@ import {
   deriveMessagesTimelineRows,
   deriveMessagesTimelineRowsWithState,
   liveWorkEntryLabel,
+  liveReasoningPreview,
+  workEntryIsVisibleInGroup,
   normalizeCompactToolLabel,
   resolveAssistantMessageCopyState,
   resolveWorkGroupScrollIndex,
@@ -3067,5 +3069,32 @@ describe("computeStableMessagesTimelineRows", () => {
 
     expect(reordered).not.toBe(initial);
     expect(reordered.result).toEqual([initial.result[1], initial.result[0]]);
+  });
+});
+
+describe("native reasoning previews", () => {
+  it("shows the latest bounded thinking text and collapses completed thoughts", () => {
+    const entry: WorkLogEntry = {
+      id: "thinking",
+      createdAt: "2026-09-10T12:00:00.000Z",
+      turnId: TurnId.make("turn"),
+      label: "Thinking",
+      tone: "thinking",
+      sourceActivityKind: "reasoning.updated",
+      detail: "Earlier thoughts. ".repeat(100) + "Checking the next step.",
+      toolLifecycleStatus: "inProgress",
+    };
+    expect(liveReasoningPreview(entry)).toHaveLength(600);
+    expect(liveReasoningPreview(entry)).toMatch(/Checking the next step\.$/);
+    expect(liveWorkEntryLabel(entry, undefined, true)).toBe("Thinking");
+    const completed = {
+      ...entry,
+      sourceActivityKind: "reasoning.completed",
+      toolLifecycleStatus: "completed" as const,
+    };
+    expect(liveReasoningPreview(completed)).toBeUndefined();
+    expect(workEntryIsVisibleInGroup(completed)).toBe(true);
+    expect(workEntryDisplayLabel(completed, undefined)).toBe("Thought process");
+    expect(completed.detail).toBe(entry.detail);
   });
 });

@@ -70,6 +70,7 @@ export function ompResumeCommand(input: {
   launchArgs: string;
   environment: Readonly<Record<string, string | undefined>>;
   sessionId: string;
+  replaceShell?: boolean;
 }): string {
   const assignments = ["PI_CONFIG_DIR", "PI_CODING_AGENT_DIR", "PI_PROFILE"].flatMap((name) =>
     input.environment[name] ? [`${name}=${quoteOmpShellArgument(input.environment[name])}`] : [],
@@ -90,5 +91,8 @@ export function ompResumeCommand(input: {
   const command = [input.binaryPath, ...sessionArgs, "--resume", input.sessionId].map(
     quoteOmpShellArgument,
   );
-  return `cd ${quoteOmpShellArgument(input.cwd)} && ${[...assignments, ...command].join(" ")}`;
+  const invocation = input.replaceShell
+    ? ["exec", "env", ...assignments, ...command]
+    : [...assignments, ...command];
+  return `cd ${quoteOmpShellArgument(input.cwd)} && ${invocation.join(" ")}`;
 }

@@ -30,7 +30,9 @@ the device displaying the interface.
 ## Continue OMP sessions
 
 In an OMP chat, open **OMP sessions** in the header to browse conversations saved
-for that project and provider profile. Search by title, or paste a full session
+across projects in the selected provider profile. Choose **This project** to narrow
+the list or **Current session** to return to this chat’s native session. Search by
+title or folder, or paste a full session
 ID or `omp --resume <session-id>` command and choose **Find session** to look up
 older sessions across projects in that provider profile too. D3 shows the saved
 folder before you continue and adds the project if needed. Pasted commands are
@@ -39,12 +41,17 @@ Select a session to preview it and continue
 in D3. Reopening an imported session returns to the same chat. **Fork session**
 creates a separate native OMP session and D3 chat.
 
-To use OMP's terminal interface, choose **Continue in terminal**, then open the
-D3 terminal or copy the resume command to a terminal on the connected computer.
-Close OMP in that terminal when finished and choose **Refresh history** before
-sending another message in D3. This adds new messages without duplicating the
-conversation. If you change the native conversation branch, fork it to open that
-history separately.
+To use OMP's terminal interface, select the current session and choose **Open OMP
+terminal**. D3 releases the session and opens a dedicated, enlarged terminal.
+Exit OMP when finished. D3 automatically adds the new conversation messages and
+makes the chat available again. This terminal flow is supported on macOS and Linux.
+
+Choose **External terminal** to copy a resume command for another terminal on the
+connected computer. Exit OMP there, then choose **Return to D3**. D3 cannot detect
+when an external terminal finishes. If the server restarts during a handoff, use
+**Return to D3** after ensuring OMP has exited. Refreshing adds new messages without
+duplicating the conversation. If you switch to a different native branch, fork
+that session to open its history separately.
 
 After OMP connects, its supported commands appear in the composer's `/` menu.
 Commands that require OMP's terminal interface, including `/tree` and `/login`,

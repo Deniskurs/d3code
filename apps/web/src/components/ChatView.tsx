@@ -8270,7 +8270,8 @@ export default function ChatView(props: ChatViewProps) {
             ompInstanceId={
               selectedProvider === "omp" ? (activeProviderInstanceId ?? undefined) : undefined
             }
-            onRunOmpTerminal={(command) => {
+            nextOmpTerminalId={nextTerminalId(allocatableActiveTerminalIds)}
+            onRunOmpTerminal={(terminalId) => {
               if (activeThreadRef)
                 useTerminalUiStateStore
                   .getState()
@@ -8278,16 +8279,9 @@ export default function ChatView(props: ChatViewProps) {
                     activeThreadRef,
                     Math.max(420, Math.round(window.innerHeight * 0.65)),
                   );
-              void runProjectScript(
-                {
-                  id: "omp-native-session",
-                  name: "OMP session",
-                  command,
-                  icon: "configure",
-                  runOnWorktreeCreate: false,
-                },
-                { preferNewTerminal: true, rememberAsLastInvoked: false },
-              );
+              if (activeThreadRef) storeNewTerminal(activeThreadRef, terminalId);
+              setTerminalOpen(true);
+              setTerminalFocusRequestId((value) => value + 1);
             }}
             {...(!supportsPullRequests || activeProjectRepository === null
               ? {}

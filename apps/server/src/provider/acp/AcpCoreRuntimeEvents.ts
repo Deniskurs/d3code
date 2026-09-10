@@ -211,6 +211,7 @@ export function makeAcpContentDeltaEvent(input: {
   readonly turnId: TurnId | undefined;
   readonly itemId?: string;
   readonly streamKind?: "assistant_text" | "reasoning_text";
+  readonly deliveryMode?: "streaming" | "buffered";
   readonly text: string;
   readonly rawPayload: unknown;
 }): ProviderRuntimeEvent {
@@ -224,6 +225,7 @@ export function makeAcpContentDeltaEvent(input: {
     payload: {
       streamKind: input.streamKind ?? "assistant_text",
       delta: input.text,
+      ...(input.deliveryMode ? { deliveryMode: input.deliveryMode } : {}),
     },
     raw: {
       source: "acp.jsonrpc",

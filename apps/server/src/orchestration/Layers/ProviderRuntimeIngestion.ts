@@ -363,6 +363,28 @@ export function runtimeEventToActivities(
       ? { sequence: eventWithSequence.sessionSequence }
       : {};
   })();
+  if (
+    (event.type === "item.updated" || event.type === "item.completed") &&
+    event.payload.itemType === "reasoning" &&
+    event.itemId &&
+    event.payload.detail
+  ) {
+    return [
+      {
+        id: EventId.make(`reasoning:${event.threadId}:${event.itemId}`),
+        createdAt: event.createdAt,
+        tone: "info",
+        kind: event.type === "item.completed" ? "reasoning.completed" : "reasoning.updated",
+        summary: event.payload.title ?? "Thinking",
+        payload: {
+          detail: event.payload.detail.slice(-8_000),
+          status: event.payload.status,
+        },
+        turnId: toTurnId(event.turnId) ?? null,
+        ...maybeSequence,
+      },
+    ];
+  }
   switch (event.type) {
     case "request.opened": {
       if (event.payload.requestType === "tool_user_input") {
@@ -1672,7 +1694,12 @@ const make = Effect.gen(function* () {
 
         const assistantDeliveryMode: AssistantDeliveryMode = yield* Effect.map(
           serverSettingsService.getSettings,
-          (settings) => (settings.enableLegacyTokenStreaming ? "streaming" : "buffered"),
+          (settings) =>
+            event.type === "content.delta" && event.payload.deliveryMode
+              ? event.payload.deliveryMode
+              : settings.enableLegacyTokenStreaming
+                ? "streaming"
+                : "buffered",
         );
         if (assistantDeliveryMode === "buffered") {
           const spillChunk = yield* appendBufferedAssistantText(assistantMessageId, assistantDelta);

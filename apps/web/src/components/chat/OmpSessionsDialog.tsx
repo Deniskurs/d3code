@@ -48,13 +48,15 @@ export function OmpSessionsDialog({
   currentThreadId,
   scopeThreadId,
   onRunTerminal,
+  nextTerminalId,
 }: {
   environmentId: EnvironmentId;
   projectId: ProjectId;
   instanceId: ProviderInstanceId;
   currentThreadId: string;
   scopeThreadId?: ThreadId | undefined;
-  onRunTerminal?: ((command: string) => void) | undefined;
+  onRunTerminal?: ((terminalId: string) => void) | undefined;
+  nextTerminalId?: string | undefined;
 }) {
   const [open, setOpen] = useState(false);
   const [sessions, setSessions] = useState<ReadonlyArray<SavedSession>>([]);
@@ -67,12 +69,15 @@ export function OmpSessionsDialog({
   const [notice, setNotice] = useState<string>();
   const [resumeCommand, setResumeCommand] = useState<string>();
   const [supportsFork, setSupportsFork] = useState(false);
+  const [supportsTerminal, setSupportsTerminal] = useState(false);
+  const [scope, setScope] = useState<"project" | "all">("all");
+  const [currentSession, setCurrentSession] = useState<SavedSession>();
   const generation = useRef(0);
   const read = useAtomCommand(readSessions, { reportFailure: false });
   const act = useAtomCommand(actOnSession, { reportFailure: false });
   const navigate = useNavigate();
 
-  const load = async (nextCursor?: string) => {
+  const load = async (nextCursor?: string, nextScope = scope) => {
     const request = ++generation.current;
     setBusy(true);
     setError(undefined);
@@ -81,6 +86,7 @@ export function OmpSessionsDialog({
       input: {
         instanceId,
         projectId,
+        scope: nextScope,
         ...(scopeThreadId ? { threadId: scopeThreadId } : {}),
         ...(nextCursor ? { cursor: nextCursor } : {}),
       },
@@ -103,6 +109,8 @@ export function OmpSessionsDialog({
     );
     setCursor(result.value.nextCursor);
     setSupportsFork(result.value.supportsFork);
+    setSupportsTerminal(result.value.supportsTerminal ?? false);
+    setCurrentSession(result.value.currentSession);
   };
 
   const select = async (session: SavedSession) => {
@@ -113,7 +121,10 @@ export function OmpSessionsDialog({
     setNotice(undefined);
     setResumeCommand(undefined);
     // Attached sessions are previewed in their existing chat, without opening a second native writer.
-    if (session.threadId) return;
+    if (session.threadId) {
+      setBusy(false);
+      return;
+    }
     setBusy(true);
     const result = await read({
       environmentId,
@@ -161,6 +172,7 @@ export function OmpSessionsDialog({
     setSelected(session);
     setPreview(session.threadId ? undefined : result.value);
     setSupportsFork(result.value.supportsFork);
+    setSupportsTerminal(result.value.supportsTerminal ?? false);
   };
 
   const perform = async (action: OmpSessionsActionInput["action"]) => {
@@ -176,6 +188,7 @@ export function OmpSessionsDialog({
         ...(scopeThreadId ? { threadId: scopeThreadId } : {}),
         sessionId: selected.sessionId,
         action,
+        ...(action === "terminal" && nextTerminalId ? { terminalId: nextTerminalId } : {}),
       },
     });
     setBusy(false);
@@ -183,14 +196,21 @@ export function OmpSessionsDialog({
       setError(failureMessage(squashAtomCommandFailure(result)));
       return;
     }
+    if (action === "terminal" && result.value.terminalId) {
+      setOpen(false);
+      onRunTerminal?.(result.value.terminalId);
+      return;
+    }
     if (action === "handoff") {
+      setSelected({ ...selected, terminalHandoff: true });
       setResumeCommand(result.value.resumeCommand);
       setNotice(
-        "D3 has released this session. Run the command below on the environment's machine. Close OMP there before returning to D3, then refresh history.",
+        "D3 has released this session for an external terminal. Run this command on the environment's machine. Exit OMP there, then choose Return to D3.",
       );
       return;
     }
     if (action === "refresh") {
+      setSelected({ ...selected, terminalHandoff: false });
       setResumeCommand(undefined);
       setNotice(
         result.value.importedMessages
@@ -207,7 +227,7 @@ export function OmpSessionsDialog({
   };
 
   const visibleSessions = sessions.filter((session) =>
-    `${session.title ?? ""} ${session.sessionId}`
+    `${session.title ?? ""} ${session.sessionId} ${session.cwd}`
       .toLowerCase()
       .includes(lookupId ?? query.trim().toLowerCase()),
   );
@@ -247,7 +267,7 @@ export function OmpSessionsDialog({
             <DialogDescription>
               {selected
                 ? "Continue in the saved project. D3 will add that project if needed."
-                : "Saved conversations for this project and OMP provider instance."}
+                : "Your native OMP conversations, ready to continue in D3."}
             </DialogDescription>
           </DialogHeader>
           <DialogPanel className="space-y-4">
@@ -291,9 +311,9 @@ export function OmpSessionsDialog({
                   <dd>{instanceId}</dd>
                 </dl>
                 <p className="text-xs text-muted-foreground">
-                  Close this session in OMP's terminal before opening, refreshing, or forking it
-                  here. For terminal-only commands such as /tree or /login, use Continue in
-                  terminal.
+                  {selected.terminalHandoff
+                    ? "This session is handed to a terminal. Exit OMP there before returning to chat."
+                    : "Use the native terminal for commands such as /tree, /settings, and /login. D3 refreshes this chat when its OMP terminal exits."}
                 </p>
                 {resumeCommand && (
                   <div className="space-y-2">
@@ -313,18 +333,20 @@ export function OmpSessionsDialog({
                       >
                         Copy resume command
                       </Button>
-                      {onRunTerminal && selected.threadId === currentThreadId && (
-                        <Button
-                          size="sm"
-                          onClick={() => {
-                            setOpen(false);
-                            onRunTerminal(resumeCommand);
-                          }}
-                        >
-                          <TerminalIcon className="size-4" />
-                          Open in D3 terminal
-                        </Button>
-                      )}
+                      {supportsTerminal &&
+                        onRunTerminal &&
+                        nextTerminalId &&
+                        selected.threadId === currentThreadId && (
+                          <Button
+                            size="sm"
+                            onClick={() => {
+                              void perform("terminal");
+                            }}
+                          >
+                            <TerminalIcon className="size-4" />
+                            Open in D3 terminal
+                          </Button>
+                        )}
                     </div>
                   </div>
                 )}
@@ -360,6 +382,35 @@ export function OmpSessionsDialog({
               </>
             ) : (
               <>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex gap-1 rounded-lg bg-muted/50 p-1" aria-label="Session scope">
+                    {(["all", "project"] as const).map((value) => (
+                      <Button
+                        key={value}
+                        variant={scope === value ? "secondary" : "ghost"}
+                        size="sm"
+                        aria-pressed={scope === value}
+                        disabled={busy}
+                        onClick={() => {
+                          setScope(value);
+                          void load(undefined, value);
+                        }}
+                      >
+                        {value === "all" ? "All projects" : "This project"}
+                      </Button>
+                    ))}
+                  </div>
+                  {currentSession ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={busy}
+                      onClick={() => void select({ ...currentSession, title: "Current session" })}
+                    >
+                      Current session
+                    </Button>
+                  ) : null}
+                </div>
                 <form
                   className="flex gap-2"
                   onSubmit={(event) => {
@@ -408,7 +459,7 @@ export function OmpSessionsDialog({
                           {session.title || "Untitled OMP session"}
                         </span>
                         <span className="block truncate font-mono text-xs text-muted-foreground">
-                          {session.sessionId}
+                          {session.cwd}
                         </span>
                         <span className="block truncate text-xs text-muted-foreground">
                           {session.updatedAt
@@ -418,7 +469,11 @@ export function OmpSessionsDialog({
                       </span>
                       {session.threadId && (
                         <span className="shrink-0 rounded border px-2 py-0.5 text-xs text-muted-foreground">
-                          In D3
+                          {session.terminalHandoff
+                            ? "In terminal"
+                            : session.threadId === currentThreadId
+                              ? "Current"
+                              : "In D3"}
                         </span>
                       )}
                     </button>
@@ -426,7 +481,7 @@ export function OmpSessionsDialog({
                   {!busy && visibleSessions.length === 0 && !error && (
                     <p className="py-10 text-center text-sm text-muted-foreground">
                       {sessions.length === 0
-                        ? "No saved OMP sessions in this project and profile yet."
+                        ? "No saved OMP sessions in this scope and profile yet."
                         : "No matching sessions. Try another search or load more sessions."}
                     </p>
                   )}
@@ -456,12 +511,45 @@ export function OmpSessionsDialog({
                   <Button
                     variant="ghost"
                     size="sm"
-                    disabled={busy}
-                    onClick={() => void perform("handoff")}
+                    disabled={
+                      busy ||
+                      (selected.terminalHandoff &&
+                        supportsTerminal &&
+                        !!onRunTerminal &&
+                        selected.threadId === currentThreadId)
+                    }
+                    onClick={() =>
+                      void perform(
+                        supportsTerminal &&
+                          onRunTerminal &&
+                          nextTerminalId &&
+                          selected.threadId === currentThreadId
+                          ? "terminal"
+                          : "handoff",
+                      )
+                    }
                   >
                     <TerminalIcon className="size-4" />
-                    Continue in terminal
+                    {supportsTerminal &&
+                    onRunTerminal &&
+                    nextTerminalId &&
+                    selected.threadId === currentThreadId
+                      ? "Open OMP terminal"
+                      : "External terminal"}
                   </Button>
+                  {supportsTerminal &&
+                    onRunTerminal &&
+                    nextTerminalId &&
+                    selected.threadId === currentThreadId && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={busy}
+                        onClick={() => void perform("handoff")}
+                      >
+                        External terminal
+                      </Button>
+                    )}
                   <Button
                     variant="outline"
                     size="sm"
@@ -469,7 +557,7 @@ export function OmpSessionsDialog({
                     onClick={() => void perform("refresh")}
                   >
                     <RefreshCwIcon className="size-4" />
-                    Refresh history
+                    {selected.terminalHandoff ? "Return to D3" : "Refresh history"}
                   </Button>
                 </>
               )}

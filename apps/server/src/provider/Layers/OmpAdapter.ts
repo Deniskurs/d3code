@@ -11,6 +11,7 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   RuntimeRequestId,
+  RuntimeItemId,
   type ThreadId,
   TurnId,
 } from "@t3tools/contracts";
@@ -69,6 +70,7 @@ import {
 } from "../acp/OmpAcpSupport.ts";
 import { type OmpAdapterShape } from "../Services/OmpAdapter.ts";
 import { ompTerminalOnlyCommand } from "../ompSessionHistory.ts";
+import { OmpReasoning } from "../ompReasoning.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.fromJsonString(Schema.Unknown));
 
@@ -133,6 +135,7 @@ interface OmpSessionContext {
   lastPlanFingerprint: string | undefined;
   activeTurnId: TurnId | undefined;
   stopped: boolean;
+  readonly reasoning: OmpReasoning;
 }
 
 interface ThreadLockEntry {
@@ -218,6 +221,27 @@ export function makeOmpAdapter(ompSettings: OmpSettings, options?: OmpAdapterLiv
 
     const offerRuntimeEvent = (event: ProviderRuntimeEvent) =>
       PubSub.publish(runtimeEventPubSub, event).pipe(Effect.asVoid);
+
+    const emitReasoning = Effect.fn("OmpAdapter.emitReasoning")(function* (
+      ctx: OmpSessionContext,
+      snapshot: ReturnType<OmpReasoning["append"]>,
+    ) {
+      if (!snapshot || !ctx.activeTurnId) return;
+      yield* offerRuntimeEvent({
+        type: snapshot.completed ? "item.completed" : "item.updated",
+        ...(yield* makeEventStamp()),
+        provider: PROVIDER,
+        threadId: ctx.threadId,
+        turnId: ctx.activeTurnId,
+        itemId: RuntimeItemId.make(`omp-thinking:${ctx.activeTurnId}:${snapshot.segment}`),
+        payload: {
+          itemType: "reasoning",
+          status: snapshot.completed ? "completed" : "inProgress",
+          title: snapshot.completed ? "Thought process" : "Thinking",
+          detail: snapshot.text,
+        },
+      });
+    });
 
     const retainThreadLock = (threadId: string) =>
       SynchronizedRef.modifyEffect(threadLocksRef, (current) => {
@@ -348,6 +372,7 @@ export function makeOmpAdapter(ompSettings: OmpSettings, options?: OmpAdapterLiv
         if (ctx.notificationFiber) {
           yield* Fiber.interrupt(ctx.notificationFiber);
         }
+        yield* emitReasoning(ctx, ctx.reasoning.finish()).pipe(Effect.ignore);
         if (ctx.exitFiber) {
           yield* Fiber.interrupt(ctx.exitFiber);
         }
@@ -382,6 +407,7 @@ export function makeOmpAdapter(ompSettings: OmpSettings, options?: OmpAdapterLiv
         yield* settlePendingApprovalsAsCancelled(ctx.pendingApprovals);
         yield* settlePendingUserInputsAsEmptyAnswers(ctx.pendingUserInputs);
         if (ctx.notificationFiber) yield* Fiber.interrupt(ctx.notificationFiber);
+        yield* emitReasoning(ctx, ctx.reasoning.finish());
         if (sessions.get(ctx.threadId) === ctx) sessions.delete(ctx.threadId);
         const activeTurnId = ctx.activeTurnId ?? ctx.session.activeTurnId;
         const { activeTurnId: _activeTurnId, ...inactiveSession } = ctx.session;
@@ -710,13 +736,27 @@ export function makeOmpAdapter(ompSettings: OmpSettings, options?: OmpAdapterLiv
               lastPlanFingerprint: undefined,
               activeTurnId: undefined,
               stopped: false,
+              reasoning: new OmpReasoning(),
             };
             startupContext = ctx;
 
             const nf = yield* Stream.runDrain(
               Stream.mapEffect(acp.getEvents(), (event) =>
                 Effect.gen(function* () {
+                  if (
+                    event._tag === "ContentDelta" ||
+                    event._tag === "ToolCallUpdated" ||
+                    event._tag === "EventStreamBarrier"
+                  ) {
+                    yield* emitReasoning(ctx, ctx.reasoning.finish());
+                  }
                   switch (event._tag) {
+                    case "ThoughtDelta":
+                      yield* emitReasoning(
+                        ctx,
+                        ctx.reasoning.append(event.text, Date.parse(yield* nowIso)),
+                      );
+                      return;
                     case "AvailableCommandsUpdated":
                       if (options?.onAvailableCommands) {
                         yield* options.onAvailableCommands(event.availableCommands, cwd);
@@ -819,6 +859,7 @@ export function makeOmpAdapter(ompSettings: OmpSettings, options?: OmpAdapterLiv
                           turnId: ctx.activeTurnId,
                           ...(event.itemId ? { itemId: event.itemId } : {}),
                           text: event.text,
+                          deliveryMode: "streaming",
                           rawPayload: event.rawPayload,
                         }),
                       );
@@ -1074,6 +1115,7 @@ export function makeOmpAdapter(ompSettings: OmpSettings, options?: OmpAdapterLiv
           }).pipe(Effect.exit);
           ctx.promptInFlight = false;
           yield* ctx.acp.clearPendingCancel;
+          yield* emitReasoning(ctx, ctx.reasoning.finish());
           if (Exit.isFailure(promptExit)) {
             if (ctx.stopped) {
               return yield* Effect.interrupt;

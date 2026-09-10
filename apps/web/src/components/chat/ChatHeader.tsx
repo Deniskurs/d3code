@@ -52,7 +52,8 @@ import { OmpSessionsDialog } from "./OmpSessionsDialog";
 
 interface ChatHeaderProps {
   ompInstanceId?: ProviderInstanceId | undefined;
-  onRunOmpTerminal?: ((command: string) => void) | undefined;
+  onRunOmpTerminal?: ((terminalId: string) => void) | undefined;
+  nextOmpTerminalId?: string | undefined;
   activeThreadEnvironmentId: EnvironmentId;
   activeThreadId: ThreadId;
   draftId?: DraftId;
@@ -125,6 +126,7 @@ export function shouldShowOpenInPicker(input: {
 export const ChatHeader = memo(function ChatHeader({
   ompInstanceId,
   onRunOmpTerminal,
+  nextOmpTerminalId,
   activeThreadEnvironmentId,
   activeThreadId,
   draftId,
@@ -417,13 +419,14 @@ export const ChatHeader = memo(function ChatHeader({
       >
         {ompInstanceId && activeProject && (
           <OmpSessionsDialog
-            key={`${activeThreadEnvironmentId}:${activeProject.id}:${ompInstanceId}`}
+            key={`${activeThreadEnvironmentId}:${activeProject.id}:${ompInstanceId}:${activeThreadId}`}
             environmentId={activeThreadEnvironmentId}
             projectId={activeProject.id}
             instanceId={ompInstanceId}
             currentThreadId={activeThreadId}
             scopeThreadId={isServerThread ? activeThreadId : undefined}
             onRunTerminal={onRunOmpTerminal}
+            nextTerminalId={nextOmpTerminalId}
           />
         )}
         {activeProjectScripts && (

@@ -489,7 +489,7 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
     ...(taskId ? { taskId } : {}),
     label: taskLabel || activity.summary,
     tone:
-      activity.kind === "task.progress"
+      activity.kind === "task.progress" || activity.kind.startsWith("reasoning.")
         ? "thinking"
         : activity.tone === "approval"
           ? "info"
@@ -1891,6 +1891,7 @@ function appendActivityGroupRows(
   const activities = omitSupersededLifecycleMarkers(
     entry.activities.filter(
       (activity) =>
+        activity.workEntry.sourceActivityKind?.startsWith("reasoning.") ||
         !(activity.toolLike && activity.status === "neutral") ||
         (isWorking &&
           activity.lifecycleStatus === "inProgress" &&

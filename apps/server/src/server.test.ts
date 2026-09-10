@@ -911,6 +911,8 @@ const buildAppUnderTest = (options?: {
       ),
       Layer.provide(
         Layer.mock(TerminalManager.TerminalManager)({
+          subscribe: () => Effect.succeed(() => {}),
+          subscribeMetadata: () => Effect.succeed(() => {}),
           ...options?.layers?.terminalManager,
         }),
       ),
