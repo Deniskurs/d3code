@@ -84,7 +84,8 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
 function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
   return (
     <Link
-      aria-label="Go to threads"
+      aria-label="D3 Code, go to threads"
+      title="D3 Code (Devis)"
       className={cn(
         "relative z-10 ml-[var(--workspace-titlebar-content-left)] hidden h-7 w-fit min-w-0 shrink-0 items-center overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 md:flex",
         onBackdrop ? "text-white" : "text-foreground",
@@ -92,14 +93,14 @@ function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
       to="/"
     >
       <span className="inline-flex min-w-0 items-center gap-1.5">
-        <T3Wordmark aria-label="D3" className="size-4 shrink-0" />
+        <T3Wordmark aria-hidden className="size-4 shrink-0" />
         <span
           className={cn(
             "truncate text-sm font-medium tracking-tight",
-            onBackdrop ? "text-white/70" : "text-muted-foreground",
+            onBackdrop ? "text-white/90" : "text-foreground/80",
           )}
         >
-          D3 Code (Devis)
+          D3 Code
         </span>
       </span>
     </Link>
