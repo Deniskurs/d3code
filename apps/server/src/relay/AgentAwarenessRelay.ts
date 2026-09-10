@@ -26,6 +26,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
+import * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient";
@@ -66,6 +67,8 @@ export function eventThreadId(event: OrchestrationEvent): ThreadId | null {
   return null;
 }
 
+const hasTaskStatus = Schema.is(Schema.Struct({ status: Schema.String }));
+
 export function shouldPublishAgentAwarenessEvent(event: OrchestrationEvent): boolean {
   if (event.metadata.historyImport === true) {
     return false;
@@ -79,18 +82,24 @@ export function shouldPublishAgentAwarenessEvent(event: OrchestrationEvent): boo
       // before the real running state arrives. Provider lifecycle events publish
       // the authoritative starting/running state instead.
       return false;
-    case "thread.proposed-plan-upserted":
     case "thread.runtime-mode-set":
     case "thread.interaction-mode-set":
       return false;
     case "thread.activity-appended":
+      // Native background tasks can outlive the root turn. Publish their
+      // lifecycle, but not description/usage-only streaming progress.
       return (
         event.payload.activity.kind === "approval.requested" ||
         event.payload.activity.kind === "approval.resolved" ||
         event.payload.activity.kind === "provider.approval.respond.failed" ||
         event.payload.activity.kind === "user-input.requested" ||
         event.payload.activity.kind === "user-input.resolved" ||
-        event.payload.activity.kind === "runtime.error"
+        event.payload.activity.kind === "runtime.error" ||
+        event.payload.activity.kind === "task.started" ||
+        event.payload.activity.kind === "task.updated" ||
+        event.payload.activity.kind === "task.completed" ||
+        (event.payload.activity.kind === "task.progress" &&
+          hasTaskStatus(event.payload.activity.payload))
       );
     default:
       return true;

@@ -89,6 +89,7 @@ jobs:
       - name: Focused release checks
         run: |
           node --test .github/scripts/d3-upstream-sync.test.mjs
+          vp test run packages/shared/src/agentNotifications.test.ts apps/web/src/lib/agentNotifications.test.ts apps/desktop/src/notifications/DesktopAgentNotifications.test.ts apps/server/src/relay/AgentAwarenessRelay.test.ts
           vp test run apps/server/src/provider/Layers/CodexComputerUseLifecycle.integration.test.ts apps/server/src/provider/Layers/CodexCollabRuntime.integration.test.ts apps/server/src/provider/Layers/CodexAdapter.test.ts apps/server/src/provider/Layers/CodexSessionRuntime.test.ts
           vp test run apps/server/src/provider/OmpSessions.test.ts apps/server/src/provider/ompReasoning.test.ts apps/web/src/components/chat/MessagesTimeline.logic.test.ts
           vp test run apps/server/src/provider/ompSessionDiscovery.test.ts apps/web/src/components/chat/ompSessionLookup.test.ts apps/server/src/provider/ompSessionHistory.test.ts apps/server/src/orchestration/decider.import.test.ts packages/client-runtime/src/providerSkills.test.ts apps/mobile/src/features/threads/use-composer-command-menu.test.ts

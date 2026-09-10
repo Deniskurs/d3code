@@ -2,6 +2,7 @@ import type {
   EnvironmentId,
   OrchestrationProjectShell,
   OrchestrationThreadShell,
+  OrchestrationShellSnapshot,
   ThreadId,
 } from "@t3tools/contracts";
 
@@ -40,7 +41,9 @@ export interface ProjectThreadAwarenessInput {
     | "updatedAt"
     | "hasPendingApprovals"
     | "hasPendingUserInput"
-  >;
+    | "backgroundLiveness"
+  > &
+    Partial<Pick<OrchestrationThreadShell, "hasActionableProposedPlan">>;
 }
 
 function buildAgentAwarenessDeepLink(input: {
@@ -80,7 +83,7 @@ function resolveThreadAwarenessPhase(
   if (thread.hasPendingApprovals) {
     return "waiting_for_approval";
   }
-  if (thread.hasPendingUserInput) {
+  if (thread.hasPendingUserInput || thread.hasActionableProposedPlan) {
     return "waiting_for_input";
   }
   if (thread.session?.status === "error" || thread.latestTurn?.state === "error") {
@@ -89,7 +92,11 @@ function resolveThreadAwarenessPhase(
   if (thread.session?.status === "starting") {
     return "starting";
   }
-  if (thread.session?.status === "running" || thread.latestTurn?.state === "running") {
+  if (
+    thread.session?.status === "running" ||
+    thread.latestTurn?.state === "running" ||
+    thread.backgroundLiveness === "working"
+  ) {
     return "running";
   }
   if (thread.latestTurn?.state === "completed") {
@@ -149,4 +156,113 @@ function detailForPhase(
     return `${thread.session.providerName} is active.`;
   }
   return undefined;
+}
+
+export interface AgentNotification extends AgentAwarenessState {
+  readonly id: string;
+}
+
+/**
+ * One tracker per environment, fed by the lightweight shell rather than mounted
+ * chats. Cached/replayed state establishes a baseline; only live edges alert.
+ */
+export function createAgentNotificationTracker(environmentId: EnvironmentId) {
+  const previous = new Map<
+    ThreadId,
+    {
+      thread: OrchestrationThreadShell;
+      phase: AgentAwarenessPhase | null;
+      activityId: string | null;
+      completionId: string | null;
+    }
+  >();
+  let initialized = false;
+
+  return {
+    update(snapshot: OrchestrationShellSnapshot | null, live: boolean) {
+      const notifications: AgentNotification[] = [];
+      const dismiss: ThreadId[] = [];
+      if (!live || snapshot === null) {
+        dismiss.push(...previous.keys());
+        previous.clear();
+        initialized = false;
+        return { notifications, dismiss };
+      }
+
+      const present = new Set<ThreadId>();
+      for (const thread of snapshot.threads) {
+        if (thread.archivedAt !== null) continue;
+        present.add(thread.id);
+        const before = previous.get(thread.id);
+        if (before?.thread === thread) continue;
+        const phase = resolveThreadAwarenessPhase(thread);
+        const activityId = thread.session?.activeTurnId ?? thread.latestTurn?.turnId ?? null;
+        const completionId =
+          thread.latestUserMessageAt ??
+          thread.latestTurn?.turnId ??
+          thread.session?.updatedAt ??
+          null;
+        const changed =
+          before !== undefined &&
+          (before.phase !== phase || (activityId !== null && before.activityId !== activityId));
+        if (changed) dismiss.push(thread.id);
+
+        const isAlert =
+          phase === "waiting_for_approval" ||
+          phase === "waiting_for_input" ||
+          phase === "failed" ||
+          phase === "completed";
+        // A newly discovered idle thread is not a completed task. Fast turns
+        // coalesced into a single shell update still have durable turn evidence.
+        const newlyFinished =
+          before === undefined &&
+          thread.latestTurn?.state === "completed" &&
+          thread.latestTurn.completedAt !== null;
+        const completionHasWork =
+          phase !== "completed" ||
+          before?.phase === "running" ||
+          before?.phase === "waiting_for_approval" ||
+          before?.phase === "waiting_for_input" ||
+          before?.thread.session?.activeTurnId != null ||
+          (thread.latestTurn?.state === "completed" &&
+            (before?.thread.latestTurn?.turnId !== thread.latestTurn.turnId ||
+              before?.thread.latestTurn?.state !== "completed"));
+        const repeatedCompletion =
+          phase === "completed" &&
+          before?.completionId !== null &&
+          before?.completionId === completionId;
+        if (
+          initialized &&
+          isAlert &&
+          completionHasWork &&
+          (changed || newlyFinished || (before === undefined && phase !== "completed")) &&
+          !repeatedCompletion
+        ) {
+          const project = snapshot.projects.find((candidate) => candidate.id === thread.projectId);
+          if (project) {
+            const awareness = projectThreadAwareness({ environmentId, project, thread });
+            if (awareness) {
+              notifications.push({
+                ...awareness,
+                id: JSON.stringify([environmentId, thread.id, phase, activityId, thread.updatedAt]),
+              });
+            }
+          }
+        }
+        previous.set(thread.id, {
+          thread,
+          phase,
+          activityId,
+          completionId: phase === "completed" ? completionId : (before?.completionId ?? null),
+        });
+      }
+      for (const threadId of previous.keys()) {
+        if (present.has(threadId)) continue;
+        previous.delete(threadId);
+        dismiss.push(threadId);
+      }
+      initialized = true;
+      return { notifications, dismiss };
+    },
+  };
 }

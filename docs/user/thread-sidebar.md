@@ -20,6 +20,22 @@ on Windows and Linux to start a new thread and immediately open another draft. T
 next draft keeps the workspace mode and base branch you selected. With **New
 worktree**, each background submission creates its own worktree.
 
+## Get notified about agent work
+
+On web and desktop, **Settings → General → Notifications** controls alerts for
+completed work, failures, approvals, and input requests across all threads and
+providers in your connected environments. Sound and system notifications can be
+turned off independently. Choose **Open thread** on an alert to go to its thread.
+The thread you are viewing stays quiet while that window is focused.
+
+In a browser, choose **Allow notifications** in that section to enable system
+alerts. In-app alerts work without browser permission. Your operating system's
+notification permissions and Focus or Do Not Disturb settings still apply.
+
+Keep the app open and connected to receive web or desktop alerts; reconnecting
+does not replay old notifications. For alerts while your phone is away from the
+app, configure [mobile notifications](./mobile-notifications.md).
+
 ## Pin and reorder threads
 
 Pin a thread from its menu to keep it above your active work.

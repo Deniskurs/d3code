@@ -191,6 +191,33 @@ export const SETTINGS_SEARCH_ITEMS = [
     requiresThreadAutoSettlement: true,
   },
   {
+    id: "agent-notifications",
+    title: "Agent alerts",
+    to: "/settings/general",
+    searchTerms: [
+      "notifications in app all threads providers connected environments completion attention approval input error",
+    ],
+  },
+  {
+    id: "agent-notification-sound",
+    title: "Notification sound",
+    to: "/settings/general",
+    searchTerms: ["agent alerts audio tone mute silent"],
+  },
+  {
+    id: "agent-notification-desktop",
+    title: "System notifications",
+    to: "/settings/general",
+    searchTerms: ["agent alerts desktop browser permission allow denied blocked operating system"],
+  },
+  {
+    id: "agent-notification-permission",
+    title: "Browser notification permission",
+    to: "/settings/general",
+    targetId: "agent-notification-desktop",
+    searchTerms: ["agent alerts allow notifications denied blocked unsupported"],
+  },
+  {
     id: "time-format",
     title: "Time format",
     to: "/settings/general",

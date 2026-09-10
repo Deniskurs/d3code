@@ -235,6 +235,41 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
     ).toBe(true);
   });
 
+  it("publishes background task lifecycle and actionable plans without streaming every progress tick", () => {
+    const event = (kind: string, payload: unknown): OrchestrationEvent =>
+      ({
+        type: "thread.activity-appended",
+        metadata: {},
+        payload: { activity: { kind, payload } },
+      }) as OrchestrationEvent;
+
+    const lifecycle = [
+      event("task.started", { taskId: "child" }),
+      event("task.updated", { taskId: "child", status: "running" }),
+      event("task.progress", { taskId: "child", status: "idle" }),
+      event("task.completed", { taskId: "child", status: "completed" }),
+    ];
+    expect(lifecycle.filter(AgentAwarenessRelay.shouldPublishAgentAwarenessEvent)).toEqual(
+      lifecycle,
+    );
+    expect(
+      AgentAwarenessRelay.shouldPublishAgentAwarenessEvent(
+        event("task.progress", { taskId: "child", detail: "Still working", usage: {} }),
+      ),
+    ).toBe(false);
+    expect(
+      AgentAwarenessRelay.shouldPublishAgentAwarenessEvent({
+        type: "thread.proposed-plan-upserted",
+        metadata: {},
+      } as OrchestrationEvent),
+    ).toBe(true);
+    expect(
+      lifecycle
+        .map((item) => ({ ...item, metadata: { historyImport: true } }))
+        .filter(AgentAwarenessRelay.shouldPublishAgentAwarenessEvent),
+    ).toEqual([]);
+  });
+
   it("deduplicates awareness state updates whose only change is their event timestamp", () => {
     expect(AgentAwarenessRelay.agentAwarenessPublishIdentity(state)).toBe(
       AgentAwarenessRelay.agentAwarenessPublishIdentity({

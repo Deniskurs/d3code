@@ -97,7 +97,7 @@ import type {
 } from "./browserImport.ts";
 import { AuthAccessTokenResult, AuthSessionState, AuthWebSocketTicketResult } from "./auth.ts";
 import { AdvertisedEndpoint } from "./remoteAccess.ts";
-import { ExecutionEnvironmentDescriptor } from "./environment.ts";
+import { ExecutionEnvironmentDescriptor, ScopedThreadRef } from "./environment.ts";
 import { type ClientSettings, type QuitConfirmationMode, SnapShotShortcut } from "./settings.ts";
 import type { EditorId } from "./editor.ts";
 import type {
@@ -1211,7 +1211,22 @@ export const DesktopPreviewAutomationWaitForInputSchema = Schema.Struct({
 export const SystemSettingsPaneSchema = Schema.Literals(["full-disk-access"]);
 export type SystemSettingsPane = typeof SystemSettingsPaneSchema.Type;
 
+export const DesktopAgentNotification = Schema.Struct({
+  id: Schema.String,
+  title: Schema.String,
+  body: Schema.String,
+  threadRef: ScopedThreadRef,
+  silent: Schema.Boolean,
+});
+export type DesktopAgentNotification = typeof DesktopAgentNotification.Type;
+
 export interface DesktopBridge {
+  /** Optional while older desktop shells can host a newer web client. */
+  notifications?: {
+    show: (input: DesktopAgentNotification) => Promise<boolean>;
+    dismiss: (id: string) => Promise<void>;
+    onClicked: (listener: (ref: ScopedThreadRef) => void) => () => void;
+  };
   getAppBranding: () => DesktopAppBranding | null;
   /** The desktop client's OS platform, read from Electron's preload process. */
   getClientPlatform?: () => string;

@@ -162,6 +162,7 @@ import {
 import { searchableSetting } from "./settingsSearch";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { PanelAnimationsPreview } from "./PanelAnimationsPreview";
+import { NotificationSettingsSection } from "./NotificationSettingsSection";
 
 const ENVIRONMENT_IDENTIFICATION_LABELS: Record<EnvironmentIdentificationMode, string> = {
   artwork: "Artwork",
@@ -502,6 +503,15 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(theme !== "system" ? ["Theme"] : []),
       ...(!followSystem ? ["Follow system"] : []),
       ...(themeHalves !== null ? ["Theme mix"] : []),
+      ...(settings.agentNotificationsEnabled !== DEFAULT_UNIFIED_SETTINGS.agentNotificationsEnabled
+        ? ["Agent alerts"]
+        : []),
+      ...(settings.agentNotificationSound !== DEFAULT_UNIFIED_SETTINGS.agentNotificationSound
+        ? ["Notification sound"]
+        : []),
+      ...(settings.agentNotificationDesktop !== DEFAULT_UNIFIED_SETTINGS.agentNotificationDesktop
+        ? ["System notifications"]
+        : []),
       ...(settings.appearanceContrast !== DEFAULT_UNIFIED_SETTINGS.appearanceContrast
         ? ["Contrast"]
         : []),
@@ -593,6 +603,9 @@ export function useSettingsRestore(onRestored?: () => void) {
     [
       isTextGenerationModelDirty,
       isBackgroundActivityDirty,
+      settings.agentNotificationsEnabled,
+      settings.agentNotificationSound,
+      settings.agentNotificationDesktop,
       settings.browserDefaultViewport,
       settings.browserDefaultZoomFactor,
       settings.browserDefaultAppearance,
@@ -704,6 +717,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       return;
     }
     updateSettings({
+      agentNotificationsEnabled: DEFAULT_UNIFIED_SETTINGS.agentNotificationsEnabled,
+      agentNotificationSound: DEFAULT_UNIFIED_SETTINGS.agentNotificationSound,
+      agentNotificationDesktop: DEFAULT_UNIFIED_SETTINGS.agentNotificationDesktop,
       appearanceContrast: DEFAULT_UNIFIED_SETTINGS.appearanceContrast,
       diffColorScheme: DEFAULT_UNIFIED_SETTINGS.diffColorScheme,
       timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
@@ -2239,6 +2255,8 @@ export function GeneralSettingsPanel() {
           </>
         ) : null}
       </SettingsSection>
+
+      <NotificationSettingsSection />
 
       <SettingsSection id="behavior" title="Behavior">
         <SettingsRow
