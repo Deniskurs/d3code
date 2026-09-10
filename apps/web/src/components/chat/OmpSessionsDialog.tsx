@@ -17,6 +17,7 @@ import {
 import { connectionAtomRuntime } from "../../connection/runtime";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
+import { ompSessionIdFromInput } from "./ompSessionLookup";
 import { Input } from "../ui/input";
 import {
   Dialog,
@@ -129,6 +130,39 @@ export function OmpSessionsDialog({
     else setPreview(result.value);
   };
 
+  const lookupId = ompSessionIdFromInput(query);
+  const lookup = async () => {
+    if (!lookupId || busy) return;
+    const request = ++generation.current;
+    setBusy(true);
+    setError(undefined);
+    setNotice(undefined);
+    setResumeCommand(undefined);
+    const result = await read({
+      environmentId,
+      input: {
+        instanceId,
+        projectId,
+        ...(scopeThreadId ? { threadId: scopeThreadId } : {}),
+        sessionId: lookupId,
+      },
+    });
+    if (request !== generation.current) return;
+    setBusy(false);
+    if (result._tag === "Failure") {
+      setError(failureMessage(squashAtomCommandFailure(result)));
+      return;
+    }
+    const session = result.value.sessions[0];
+    if (!session) {
+      setError("No matching OMP session was found.");
+      return;
+    }
+    setSelected(session);
+    setPreview(session.threadId ? undefined : result.value);
+    setSupportsFork(result.value.supportsFork);
+  };
+
   const perform = async (action: OmpSessionsActionInput["action"]) => {
     if (!selected || busy) return;
     setBusy(true);
@@ -175,14 +209,14 @@ export function OmpSessionsDialog({
   const visibleSessions = sessions.filter((session) =>
     `${session.title ?? ""} ${session.sessionId}`
       .toLowerCase()
-      .includes(query.trim().toLowerCase()),
+      .includes(lookupId ?? query.trim().toLowerCase()),
   );
 
   return (
     <>
       <Button
-        variant="ghost"
-        size="sm"
+        variant="outline"
+        size="xs"
         onClick={() => {
           setOpen(true);
           setSelected(undefined);
@@ -193,8 +227,10 @@ export function OmpSessionsDialog({
         }}
         aria-label="Browse OMP sessions"
       >
-        <HistoryIcon className="size-4" />
-        <span className="hidden lg:inline">OMP sessions</span>
+        <HistoryIcon className="size-3.5" />
+        <span className="sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5">
+          OMP sessions
+        </span>
       </Button>
       <Dialog
         open={open}
@@ -210,7 +246,7 @@ export function OmpSessionsDialog({
             <DialogTitle>{selected ? selected.title || "OMP session" : "OMP sessions"}</DialogTitle>
             <DialogDescription>
               {selected
-                ? "Continue the same conversation in D3 or OMP's terminal."
+                ? "Continue in the saved project. D3 will add that project if needed."
                 : "Saved conversations for this project and OMP provider instance."}
             </DialogDescription>
           </DialogHeader>
@@ -324,14 +360,26 @@ export function OmpSessionsDialog({
               </>
             ) : (
               <>
-                <div className="flex gap-2">
+                <form
+                  className="flex gap-2"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void lookup();
+                  }}
+                >
                   <Input
-                    aria-label="Search OMP sessions"
-                    placeholder="Search titles or session IDs..."
+                    aria-label="Search OMP sessions or paste a resume command"
+                    placeholder="Search titles, paste a session ID or omp --resume ..."
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
                   />
+                  {lookupId && (
+                    <Button type="submit" size="sm" disabled={busy}>
+                      Find session
+                    </Button>
+                  )}
                   <Button
+                    type="button"
                     variant="outline"
                     size="icon"
                     disabled={busy}
@@ -340,7 +388,11 @@ export function OmpSessionsDialog({
                   >
                     <RefreshCwIcon className="size-4" />
                   </Button>
-                </div>
+                </form>
+                <p className="text-xs text-muted-foreground">
+                  Paste a full session ID or resume command and press Enter to find it, including
+                  older sessions. Lookup searches all projects in this provider profile.
+                </p>
                 <div className="max-h-96 space-y-1 overflow-y-auto" aria-label="Saved OMP sessions">
                   {visibleSessions.map((session) => (
                     <button
@@ -354,6 +406,9 @@ export function OmpSessionsDialog({
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm font-medium">
                           {session.title || "Untitled OMP session"}
+                        </span>
+                        <span className="block truncate font-mono text-xs text-muted-foreground">
+                          {session.sessionId}
                         </span>
                         <span className="block truncate text-xs text-muted-foreground">
                           {session.updatedAt

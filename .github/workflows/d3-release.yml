@@ -1,6 +1,26 @@
 name: D3 Release
 
 on:
+  workflow_call:
+    inputs:
+      signed:
+        type: boolean
+        default: true
+      draft_release:
+        type: boolean
+        default: false
+      source_sha:
+        type: string
+        default: ""
+      base_sha:
+        type: string
+        default: ""
+      source_bundle:
+        type: string
+        default: ""
+    outputs:
+      version:
+        value: ${{ jobs.build.outputs.version }}
   workflow_dispatch:
     inputs:
       signed:
@@ -28,6 +48,23 @@ jobs:
       version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.base_sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        if: inputs.source_bundle != ''
+        with:
+          name: ${{ inputs.source_bundle }}
+          path: ${{ runner.temp }}/d3-candidate
+      - name: Load tested candidate source
+        if: inputs.source_bundle != ''
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          git fetch "$RUNNER_TEMP/d3-candidate/candidate.bundle" HEAD
+          test "$(git rev-parse FETCH_HEAD)" = "$SOURCE_SHA"
+          git checkout --detach "$SOURCE_SHA"
       - uses: voidzero-dev/setup-vp@v1
         with:
           node-version-file: package.json
@@ -51,7 +88,8 @@ jobs:
           JS
       - name: Focused release checks
         run: |
-          vp test run apps/server/src/provider/ompSessionHistory.test.ts apps/server/src/orchestration/decider.import.test.ts packages/client-runtime/src/providerSkills.test.ts apps/mobile/src/features/threads/use-composer-command-menu.test.ts
+          node --test .github/scripts/d3-upstream-sync.test.mjs
+          vp test run apps/web/src/components/chat/ompSessionLookup.test.ts apps/server/src/provider/ompSessionHistory.test.ts apps/server/src/orchestration/decider.import.test.ts packages/client-runtime/src/providerSkills.test.ts apps/mobile/src/features/threads/use-composer-command-menu.test.ts
           vp test run apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.test.ts apps/server/src/provider/Layers/ProviderService.test.ts -t 'native OMP model changes|handed to the terminal'
           vp test run apps/web/src/components/desktopUpdate.logic.test.ts apps/web/src/outbox/model.test.ts apps/server/src/provider/ompErrors.test.ts apps/server/src/provider/ompSteering.test.ts apps/server/src/provider/acp/OmpAcpSupport.test.ts apps/server/src/orchestration/Layers/ProviderCommandReactor.test.ts apps/web/src/onboarding/providerReadiness.logic.test.ts apps/server/src/provider/ompEnvironment.test.ts apps/server/src/provider/Layers/OmpProvider.test.ts apps/server/src/provider/Layers/OmpAdapter.test.ts apps/desktop/src/updates/DesktopUpdates.d3.test.ts scripts/build-desktop-artifact.d3.test.ts
           vp run --filter t3 --filter @t3tools/web --filter @t3tools/desktop --filter @t3tools/scripts typecheck
@@ -117,6 +155,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: d3-mac-${{ steps.version.outputs.version }}
+          retention-days: 2
           path: |
             release/*.dmg
             release/*.zip

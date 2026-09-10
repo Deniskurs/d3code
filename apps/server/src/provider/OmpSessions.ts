@@ -1,5 +1,6 @@
 import {
   CommandId,
+  ProjectId,
   DEFAULT_RUNTIME_MODE,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   MessageId,
@@ -115,9 +116,9 @@ export const makeOmpSessions = Effect.gen(function* () {
       mergeProviderInstanceEnvironment(instance?.environment),
       platform,
     );
-    const commandFor = (sessionId: string) =>
+    const commandFor = (sessionId: string, sessionCwd = cwd) =>
       ompResumeCommand({
-        cwd,
+        cwd: sessionCwd,
         binaryPath: expandHomePath(config.binaryPath || "omp"),
         launchArgs: config.launchArgs,
         environment,
@@ -149,15 +150,20 @@ export const makeOmpSessions = Effect.gen(function* () {
       let cursor: string | undefined;
       const visited = new Set<string>();
       for (let pageIndex = 0; pageIndex < 100; pageIndex++) {
-        const page = yield* list(cursor);
+        const page = yield* runtime
+          .request("session/list", { ...(cursor ? { cursor } : {}) })
+          .pipe(Effect.flatMap(decodePage));
         const found = page.sessions.find((entry) => entry.sessionId === sessionId);
-        if (found && (yield* fs.realPath(found.cwd)) === canonicalCwd) return found;
+        if (found) {
+          yield* fs.realPath(found.cwd);
+          return found;
+        }
         if (!page.nextCursor || visited.has(page.nextCursor)) break;
         visited.add(page.nextCursor);
         cursor = page.nextCursor;
       }
       return yield* fail(
-        "This OMP session no longer exists in this project and profile. Refresh the session list.",
+        "This OMP session was not found in this provider profile. Check the session ID and the selected OMP profile.",
       );
     });
     const history = (sessionId: string, sessionCwd: string) =>
@@ -187,6 +193,7 @@ export const makeOmpSessions = Effect.gen(function* () {
       bindingFor,
       supportsFork: capabilities.fork !== undefined,
       projectRoot: project.value.workspaceRoot,
+      canonicalCwd,
     };
   });
 
@@ -205,16 +212,18 @@ export const makeOmpSessions = Effect.gen(function* () {
       if (input.sessionId) {
         const session = yield* ctx.find(input.sessionId);
         const binding = ctx.bindingFor(input.sessionId);
-        // Loading a second writer over an attached session can overwrite native state.
-        if (binding && binding.status !== "stopped")
-          return yield* fail(
-            "This session is attached to D3. Open its chat, or use Continue in terminal to release it before previewing native history.",
-          );
+        // Return attached identity without loading a second native writer, even during a turn.
+        if (binding)
+          return {
+            sessions: [{ ...session, threadId: binding.threadId }],
+            messages: [],
+            supportsFork: ctx.supportsFork,
+          } satisfies OmpSessionsReadResult;
         const history = yield* ctx.history(input.sessionId, session.cwd);
         return {
-          sessions: [{ ...session, ...(binding ? { threadId: binding.threadId } : {}) }],
+          sessions: [session],
           messages: history.messages,
-          resumeCommand: ctx.commandFor(input.sessionId),
+          resumeCommand: ctx.commandFor(input.sessionId, session.cwd),
           supportsFork: ctx.supportsFork,
         } satisfies OmpSessionsReadResult;
       }
@@ -244,13 +253,13 @@ export const makeOmpSessions = Effect.gen(function* () {
           threadId,
           sessionId,
           importedMessages,
-          resumeCommand: ctx.commandFor(sessionId),
+          resumeCommand: ctx.commandFor(sessionId, native.cwd),
           completedAt: now,
         });
         if (binding) {
           const existing = yield* snapshots.getThreadDetailById(binding.threadId);
-          if (Option.isNone(existing) || existing.value.projectId !== input.projectId)
-            return yield* fail("The linked D3 thread is no longer available in this project.");
+          if (Option.isNone(existing))
+            return yield* fail("The linked D3 thread is no longer available.");
           if (existing.value.archivedAt || existing.value.deletedAt)
             return yield* fail("Restore the existing D3 thread before opening this session.");
           if (input.action === "open") return result(0);
@@ -285,6 +294,26 @@ export const makeOmpSessions = Effect.gen(function* () {
         if (Option.isNone(existing)) {
           if (!nativeHistory.model)
             return yield* fail("Select a model in OMP before importing this session.");
+          const inCurrentWorkspace = (yield* fs.realPath(native.cwd)) === ctx.canonicalCwd;
+          let projectId = input.projectId;
+          if (!inCurrentWorkspace) {
+            const nativeProject = yield* snapshots.getActiveProjectByWorkspaceRoot(native.cwd);
+            if (Option.isSome(nativeProject)) projectId = nativeProject.value.id;
+            else {
+              projectId = ProjectId.make(yield* crypto.randomUUIDv4);
+              yield* engine.dispatch({
+                type: "project.create",
+                commandId: CommandId.make(yield* crypto.randomUUIDv4),
+                projectId,
+                title:
+                  native.cwd.replaceAll("\\", "/").split("/").filter(Boolean).at(-1) ??
+                  "OMP sessions",
+                workspaceRoot: native.cwd,
+                defaultModelSelection: { instanceId: input.instanceId, model: nativeHistory.model },
+                createdAt: now,
+              });
+            }
+          }
           yield* directory.upsert(
             {
               threadId,
@@ -293,7 +322,7 @@ export const makeOmpSessions = Effect.gen(function* () {
               status: "stopped",
               runtimeMode: DEFAULT_RUNTIME_MODE,
               resumeCursor: { schemaVersion: OMP_RESUME_VERSION, sessionId },
-              runtimePayload: { cwd: ctx.cwd },
+              runtimePayload: { cwd: native.cwd },
             },
             { onConflict: "ignore" },
           );
@@ -301,7 +330,7 @@ export const makeOmpSessions = Effect.gen(function* () {
             type: "thread.create",
             commandId: CommandId.make(yield* crypto.randomUUIDv4),
             threadId,
-            projectId: input.projectId,
+            projectId,
             title:
               input.action === "fork"
                 ? `${native.title || "OMP session"} (fork)`
@@ -310,7 +339,7 @@ export const makeOmpSessions = Effect.gen(function* () {
             runtimeMode: DEFAULT_RUNTIME_MODE,
             interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
             branch: null,
-            worktreePath: ctx.cwd === ctx.projectRoot ? null : ctx.cwd,
+            worktreePath: inCurrentWorkspace && ctx.cwd !== ctx.projectRoot ? ctx.cwd : null,
             createdAt: now,
             historyImport: true,
           });

@@ -30,7 +30,10 @@ the device displaying the interface.
 ## Continue OMP sessions
 
 In an OMP chat, open **OMP sessions** in the header to browse conversations saved
-for that project and provider profile. Select a session to preview it and continue
+for that project and provider profile. Search by title, or paste a full session
+ID or `omp --resume <session-id>` command and choose **Find session** to look up
+older sessions too. Pasted commands are used for lookup, not executed.
+Select a session to preview it and continue
 in D3. Reopening an imported session returns to the same chat. **Fork session**
 creates a separate native OMP session and D3 chat.
 

@@ -1,0 +1,116 @@
+name: D3 Nightly Sync
+
+on:
+  schedule:
+    - cron: "23 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      check_only:
+        description: Check the newest upstream merge without building or publishing (ignores daily cooldown)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d3-nightly-sync
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.repository == 'Deniskurs/d3code' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      ready: ${{ steps.prepare.outputs.ready }}
+      base_sha: ${{ steps.prepare.outputs.base_sha }}
+      source_sha: ${{ steps.prepare.outputs.source_sha }}
+      version: ${{ steps.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node --test .github/scripts/d3-upstream-sync.test.mjs
+      - id: prepare
+        name: Prepare isolated nightly candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          D3_CHECK_ONLY: ${{ inputs.check_only || false }}
+          D3_CANDIDATE_DIR: ${{ runner.temp }}/d3-candidate
+        run: node .github/scripts/d3-upstream-sync.mjs
+      - uses: actions/upload-artifact@v4
+        if: steps.prepare.outputs.ready == 'true' && !inputs.check_only
+        with:
+          name: d3-nightly-source
+          path: ${{ runner.temp }}/d3-candidate/*
+          retention-days: 1
+          if-no-files-found: error
+
+  build:
+    needs: prepare
+    if: needs.prepare.outputs.ready == 'true' && !inputs.check_only
+    uses: ./.github/workflows/d3-release.yml
+    secrets: inherit
+    permissions:
+      contents: write
+    with:
+      signed: true
+      draft_release: false
+      base_sha: ${{ needs.prepare.outputs.base_sha }}
+      source_sha: ${{ needs.prepare.outputs.source_sha }}
+      source_bundle: d3-nightly-source
+
+  publish:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.base_sha }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: d3-nightly-source
+          path: ${{ runner.temp }}/d3-candidate
+      - uses: actions/download-artifact@v4
+        with:
+          name: d3-mac-${{ needs.build.outputs.version }}
+          path: release
+      - name: Promote verified source and publish Devis
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
+          SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+          VERSION: ${{ needs.build.outputs.version }}
+          EXPECTED_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          test "$VERSION" = "$EXPECTED_VERSION"
+          test -f "release/D3-Code-${VERSION}-arm64.zip"
+          test -f "release/D3-Code-${VERSION}-arm64.dmg"
+          test -f release/D3-Code-mac-arm64.dmg
+          test -f release/latest-mac.yml
+          (cd release && sha256sum --check SHA256SUMS.txt)
+          cmp "release/D3-Code-${VERSION}-arm64.dmg" release/D3-Code-mac-arm64.dmg
+          grep -Fx "version: $VERSION" release/latest-mac.yml
+          git fetch "$RUNNER_TEMP/d3-candidate/candidate.bundle" HEAD
+          test "$(git rev-parse FETCH_HEAD)" = "$SOURCE_SHA"
+          git fetch origin main
+          test "$(git rev-parse FETCH_HEAD)" = "$BASE_SHA" || { echo 'Main changed during the build. Publication paused; the next run will rebuild.'; exit 1; }
+          git push origin "$SOURCE_SHA:refs/heads/main"
+          if gh release view "v$VERSION" --json isDraft,targetCommitish > "$RUNNER_TEMP/existing-release.json" 2>/dev/null; then
+            jq -e --arg sha "$SOURCE_SHA" '.isDraft == true and .targetCommitish == $sha' "$RUNNER_TEMP/existing-release.json"
+            gh release upload "v$VERSION" release/* --clobber
+          else
+            gh release create "v$VERSION" release/* --target "$SOURCE_SHA" --title "D3 Code $VERSION (Devis)" --notes-file "$RUNNER_TEMP/d3-candidate/release-notes.md" --draft
+          fi
+          gh release edit "v$VERSION" --notes-file "$RUNNER_TEMP/d3-candidate/release-notes.md" --draft=false --latest

@@ -81,3 +81,27 @@ Signed D3 builds use only `Deniskurs/d3code` as their update source. A new publi
 release appears through the existing Download / Restart update controls. Unsigned
 local builds have no updater feed; install the first signed release manually.
 OMP updates are separate provider updates and do not require a D3 release.
+
+## Automatic nightly updates
+
+**D3 Nightly Sync** checks published upstream nightlies every six hours, at minute
+23 UTC. It exits when D3 is current or a public Devis release was published less
+than 24 hours ago. The next release receives D3's next patch version.
+
+The workflow merges in an isolated checkout and transfers that candidate to the
+existing signed release build. Only a successful build can advance `main` and
+publish the release. If `main` changes during the build, publication stops and
+the next run rebuilds. Source conflicts fail the workflow with the affected
+files in its summary; GitHub's normal Actions notification settings apply.
+Resolve those conflicts locally, update the upstream tag in `d3Build.ts`, and
+push the resolution before retrying. Failed publication after source promotion
+is retried with the same unpublished version; published assets are never replaced.
+
+D3 retains its own `.github/workflows` files during automatic merges. Review
+upstream workflow changes separately when updating release infrastructure.
+Temporary source bundles expire after one day and build artifacts after two;
+the published installers remain on the release page.
+
+Use **Actions > D3 Nightly Sync > Run workflow > check_only** to check an upstream
+merge immediately without building or publishing. This diagnostic mode ignores
+the daily cooldown. Disable the workflow in GitHub Actions to pause automation.
