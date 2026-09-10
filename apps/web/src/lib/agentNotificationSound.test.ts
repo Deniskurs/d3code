@@ -16,6 +16,25 @@ function deferred<A>() {
   return { promise, resolve };
 }
 
+function heldNotificationLocks() {
+  const gate = deferred<void>();
+  let tail: Promise<void> = Promise.resolve();
+  const names: string[] = [];
+  const request = vi.fn((name: string, callback: () => boolean | Promise<boolean>) => {
+    names.push(name);
+    if (name !== "d3:agent-notifications:delivered") {
+      return Promise.resolve().then(callback);
+    }
+    const result = tail.then(() => gate.promise).then(callback);
+    tail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  });
+  return { names, release: gate.resolve, request };
+}
+
 let serial = 0;
 let insideGesture = false;
 const cleanups: Array<() => void> = [];
@@ -265,13 +284,30 @@ describe("notification sound reliability", () => {
     expect(audio.nodes.filter((node) => node.audible)).toHaveLength(1);
   });
 
-  it("plays once when two audio-ready tabs observe the same transition", async () => {
+  it("serializes independent sound and system claims across renderer realms", async () => {
+    const locks = heldNotificationLocks();
+    vi.stubGlobal("navigator", { locks: { request: locks.request } });
     const audio = audioDevice();
-    const first = await client();
-    const second = await client();
+    const first = await client({ native: true, system: true });
+    const second = await client({ native: true, system: true });
     const event = notification();
-    await Promise.all([first.delivery.notify(event), second.delivery.notify(event)]);
+
+    const pending = [first.delivery.notify(event), second.delivery.notify(event)];
+    await vi.waitFor(() => expect(locks.names).toHaveLength(4));
+    expect(locks.names).toEqual([
+      "d3:agent-notifications:delivered",
+      "d3:agent-notifications:delivered",
+      "d3:agent-notifications:delivered",
+      "d3:agent-notifications:delivered",
+    ]);
+    expect(audio.nodes.filter((node) => node.audible)).toHaveLength(0);
+    expect(first.show).not.toHaveBeenCalled();
+    expect(second.show).not.toHaveBeenCalled();
+
+    locks.release();
+    await Promise.all(pending);
     expect(audio.nodes.filter((node) => node.audible)).toHaveLength(1);
+    expect(first.show.mock.calls.length + second.show.mock.calls.length).toBe(1);
   });
 
   it("keeps audio running when an alert arrives during activation", async () => {

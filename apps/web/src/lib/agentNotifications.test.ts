@@ -15,6 +15,25 @@ function deferred<A>() {
   return { promise, resolve };
 }
 
+function heldNotificationLocks() {
+  const gate = deferred<void>();
+  let tail: Promise<void> = Promise.resolve();
+  const names: string[] = [];
+  const request = vi.fn((name: string, callback: () => boolean | Promise<boolean>) => {
+    names.push(name);
+    if (name !== "d3:agent-notifications:delivered") {
+      return Promise.resolve().then(callback);
+    }
+    const result = tail.then(() => gate.promise).then(callback);
+    tail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  });
+  return { names, release: gate.resolve, request };
+}
+
 let sequence = 0;
 function notification(overrides: Partial<AgentNotification> = {}): AgentNotification {
   return {
@@ -69,6 +88,26 @@ function harness() {
       delivery.reconcile();
     },
   };
+}
+
+async function realmHarness(selected: ScopedThreadRef) {
+  // Resetting between imports is intentional: each module instance models a renderer realm.
+  vi.resetModules();
+  const module = await import("./agentNotifications");
+  const showToast = vi.fn(() => vi.fn());
+  const delivery = module.createAgentNotificationDelivery({
+    settings: () => ({
+      agentNotificationsEnabled: true,
+      agentNotificationSound: false,
+      agentNotificationDesktop: true,
+    }),
+    isSelected: (ref) =>
+      selected.environmentId === ref.environmentId && selected.threadId === ref.threadId,
+    isAppFocused: () => false,
+    onOpen: vi.fn(),
+    showToast,
+  });
+  return { delivery, showToast };
 }
 
 beforeEach(() => {
@@ -249,20 +288,50 @@ describe("agent notification delivery", () => {
     expect(show).toHaveBeenCalledTimes(1);
   });
 
-  it("hands a repeated event to the OS only once across client consumers", async () => {
+  it("serializes system delivery under the shared Web Lock across module realms", async () => {
+    const locks = heldNotificationLocks();
+    vi.stubGlobal("navigator", { locks: { request: locks.request } });
     const show = vi.fn(async () => true);
     vi.stubGlobal("window", {
       desktopBridge: { notifications: { show, dismiss: vi.fn(async () => undefined) } },
     });
-    const firstTab = harness();
-    const secondTab = harness();
     const event = notification();
-    await Promise.all([firstTab.delivery.notify(event), secondTab.delivery.notify(event)]);
-    expect(show).toHaveBeenCalledTimes(1);
-    expect(firstTab.visible.has(event.id)).toBe(true);
-    expect(secondTab.visible.has(event.id)).toBe(true);
+    const firstTab = await realmHarness(event);
+    const secondTab = await realmHarness(event);
+
+    const pending = [firstTab.delivery.notify(event), secondTab.delivery.notify(event)];
+    await Promise.resolve();
+    expect(locks.names).toEqual([
+      "d3:agent-notifications:delivered",
+      "d3:agent-notifications:delivered",
+    ]);
+    expect(show).not.toHaveBeenCalled();
+    expect(firstTab.showToast).not.toHaveBeenCalled();
+    expect(secondTab.showToast).not.toHaveBeenCalled();
+
+    locks.release();
+    await Promise.all(pending);
+    expect(show).toHaveBeenCalledOnce();
     firstTab.delivery.clear();
     secondTab.delivery.clear();
+  });
+
+  it("keeps the in-app action when the Web Locks request is rejected", async () => {
+    vi.stubGlobal("navigator", {
+      locks: { request: vi.fn(() => Promise.reject(new Error("Lock manager unavailable"))) },
+    });
+    const show = vi.fn(async () => true);
+    vi.stubGlobal("window", {
+      desktopBridge: { notifications: { show, dismiss: vi.fn(async () => undefined) } },
+    });
+    const h = harness();
+    const event = notification();
+
+    await h.delivery.notify(event);
+
+    expect(show).not.toHaveBeenCalled();
+    expect(h.visible.has(event.id)).toBe(true);
+    h.delivery.clear();
   });
 
   it("keeps newer alerts when an earlier native handoff finishes late", async () => {
