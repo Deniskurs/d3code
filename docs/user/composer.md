@@ -12,11 +12,11 @@ In the web and desktop composer, sending while an agent is working automatically
 
 Queued messages run in order after the current work finishes. New follow-ups join the back of an existing queue. Choose **Send now** beside a queued message to send it ahead of the queue using the provider's native follow-up behavior; the provider controls when it applies the instructions.
 
-You can edit or remove unsent messages, or pause and resume delivery from a chosen message. Delivery pauses after a stopped or failed task and while the agent needs an approval or answer. Use **Send now** when you are ready to continue after a failure; required approvals and answers must still be resolved first.
+You can edit or remove unsent messages, or pause and resume delivery from a chosen message. Delivery pauses after a stopped or failed agent task and while the agent needs an approval or answer. Use **Send now** on an unsent queued message when you are ready to continue after the task stops or fails; required approvals and answers must still be resolved first.
 
 Queued messages and their attachments are saved on the device where you queued them. Keep D3 open to deliver them; reopening it resumes the queue after reconnecting. Switching conversations does not stop delivery. The queue is not shared with another device or the native mobile client. A file restored from an older draft may need reattaching before it can be saved in the queue.
 
-Messages become read-only once submission starts. If delivery cannot be confirmed, **Retry delivery** reuses the original message ID to avoid a duplicate. **Submitted** means the server accepted the command; the conversation shows the response when the provider processes it.
+Messages become read-only once submission starts. If a message's delivery fails or cannot be confirmed, it shows **Needs attention**. Use **Retry** to resend the original command with the same message ID and avoid a duplicate. **Send now** is not available for these failed deliveries. **Submitted** means the server accepted the command; the conversation shows the response when the provider processes it.
 
 ## Attach files
 
