@@ -3547,6 +3547,70 @@ describe("ProviderRuntimeIngestion", () => {
     expect(thread.session?.lastError).toBeNull();
   });
 
+  it("records active and late advisor feedback without changing primary state or messages", async () => {
+    const harness = await createHarness();
+    const base = {
+      provider: ProviderDriverKind.make("omp"),
+      createdAt: "2026-09-11T16:00:01.000Z",
+      threadId: asThreadId("thread-1"),
+    };
+    await harness.emitAndDrain([
+      {
+        ...base,
+        type: "turn.started",
+        eventId: asEventId("advisor-primary-start"),
+        turnId: asTurnId("advisor-primary"),
+        payload: {},
+      },
+    ]);
+    const running = (await harness.readModel()).threads[0]!;
+    expect(running.session?.status).toBe("running");
+    await harness.emitAndDrain([
+      {
+        ...base,
+        type: "advisor.findings",
+        eventId: asEventId("advisor-active"),
+        payload: {
+          notes: [{ note: "Failure needs a rollback.", severity: "blocker", advisor: "Safety" }],
+        },
+      },
+    ]);
+    const activeFeedback = (await harness.readModel()).threads[0]!;
+    expect(activeFeedback.session).toEqual(running.session);
+    expect(activeFeedback.messages).toEqual(running.messages);
+    await harness.emitAndDrain([
+      {
+        ...base,
+        type: "turn.completed",
+        eventId: asEventId("advisor-primary-complete"),
+        turnId: asTurnId("advisor-primary"),
+        payload: { state: "completed" },
+      },
+    ]);
+    const completed = (await harness.readModel()).threads[0]!;
+    expect(completed.session?.status).toBe("ready");
+    await harness.emitAndDrain([
+      {
+        ...base,
+        type: "advisor.findings",
+        eventId: asEventId("advisor-late"),
+        createdAt: "2026-09-11T16:00:02.000Z",
+        payload: { notes: [{ note: "The answer should retain its primary outcome." }] },
+      },
+    ]);
+    const lateFeedback = (await harness.readModel()).threads[0]!;
+    expect(lateFeedback.session).toEqual(completed.session);
+    expect(lateFeedback.messages).toEqual(completed.messages);
+    expect(
+      lateFeedback.activities
+        .filter((activity) => activity.kind === "advisor.feedback")
+        .map((activity) => ({ id: activity.id, turnId: activity.turnId, tone: activity.tone })),
+    ).toEqual([
+      { id: "advisor-active", turnId: null, tone: "info" },
+      { id: "advisor-late", turnId: null, tone: "info" },
+    ]);
+  });
+
   it("maps session/thread lifecycle and item.started into session/activity projections", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";

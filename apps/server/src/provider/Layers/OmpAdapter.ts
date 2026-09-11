@@ -932,6 +932,50 @@ export function makeOmpAdapter(ompSettings: OmpSettings, options?: OmpAdapterLiv
               threadId: input.threadId,
               payload: { providerThreadId: started.sessionId },
             });
+
+            const advisorContext = yield* Effect.context<never>();
+            const runAdvisorEffect = Effect.runPromiseWith(advisorContext);
+            yield* Effect.tryPromise({
+              try: (signal) =>
+                steering.watchAdvisorFindings(
+                  (findings) =>
+                    runAdvisorEffect(
+                      Effect.suspend(() => {
+                        if (
+                          ctx.stopped ||
+                          ctx.stopRequested ||
+                          sessions.get(ctx.threadId) !== ctx ||
+                          findings.sessionId !== started.sessionId
+                        ) {
+                          return Effect.void;
+                        }
+                        return offerRuntimeEvent({
+                          type: "advisor.findings",
+                          eventId: EventId.make(
+                            `omp-advisor:${findings.bridgeId}:${findings.sequence}`,
+                          ),
+                          createdAt: DateTime.formatIso(DateTime.makeUnsafe(findings.timestamp)),
+                          provider: PROVIDER,
+                          threadId: ctx.threadId,
+                          payload: { notes: findings.notes },
+                        });
+                      }),
+                      { signal },
+                    ),
+                  signal,
+                ),
+              catch: (cause) => mapOmpAcpToAdapterError("advisories/watch", cause),
+            }).pipe(
+              Effect.catchCause((cause) =>
+                Cause.hasInterrupts(cause)
+                  ? Effect.interrupt
+                  : Effect.logWarning("Failed to observe delivered OMP advisor feedback.", {
+                      cause: Cause.pretty(cause),
+                      threadId: ctx.threadId,
+                    }),
+              ),
+              Effect.forkIn(ctx.scope),
+            );
             sessionScopeTransferred = true;
 
             return session;
@@ -1105,13 +1149,40 @@ export function makeOmpAdapter(ompSettings: OmpSettings, options?: OmpAdapterLiv
 
           ctx.promptInFlight = true;
           const promptExit = yield* Effect.gen(function* () {
-            yield* Effect.tryPromise({
+            const tracksOutcome = yield* Effect.tryPromise({
               try: (signal) => ctx.steering.beginTurn(turnId, signal),
               catch: (cause) => mapOmpAcpToAdapterError("steering/begin", cause),
             });
-            return yield* ctx.acp
+            const result = yield* ctx.acp
               .prompt({ prompt: promptParts })
               .pipe(Effect.mapError((error) => mapOmpAcpToAdapterError("session/prompt", error)));
+            if (!tracksOutcome || ctx.stopped || result.stopReason === "cancelled") return result;
+            const outcome = yield* Effect.tryPromise({
+              try: (signal) => ctx.steering.readOutcome(turnId, signal),
+              catch: (cause) => mapOmpAcpToAdapterError("session/outcome", cause),
+            }).pipe(
+              Effect.catch((cause) =>
+                Effect.logWarning(
+                  "Could not read the OMP native turn outcome; retaining ACP status.",
+                  {
+                    cause,
+                    threadId: input.threadId,
+                    turnId,
+                  },
+                ).pipe(Effect.as(null)),
+              ),
+            );
+            if (ctx.interruptedTurnIds.has(turnId) || outcome?.stopReason === "aborted") {
+              return { ...result, stopReason: "cancelled" as const };
+            }
+            if (outcome?.stopReason === "error") {
+              return yield* new ProviderAdapterRequestError({
+                provider: PROVIDER,
+                method: "session/prompt",
+                detail: outcome.errorMessage || "Oh My Pi provider request failed.",
+              });
+            }
+            return result;
           }).pipe(Effect.exit);
           ctx.promptInFlight = false;
           yield* ctx.acp.clearPendingCancel;

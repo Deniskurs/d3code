@@ -1114,15 +1114,15 @@ export function ThreadThinkingRow(props: {
   return (
     <View
       accessible
-      accessibilityLabel="Thinking"
+      accessibilityLabel="Waiting for response"
       className="-mx-1 min-h-8 flex-row items-center px-1.5 py-0"
       style={{ minHeight: props.rowSizing.estimatedRowHeight }}
     >
       <ShimmeringWorkContent
         key={props.rowSizing.textSizeKey}
-        icon="brain"
+        icon="message.circle"
         iconSubtleColor={props.iconSubtleColor}
-        label="Thinking"
+        label="Waiting for response"
         showIcon
       />
     </View>

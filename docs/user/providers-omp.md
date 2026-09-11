@@ -28,7 +28,13 @@ Browse and continue terminal conversations from **OMP sessions**. See [Continue 
 
 ## Live output
 
-OMP replies appear as text arrives. When OMP publishes thinking text, D3 shows a short live preview in the activity history. Expand **Thought process** to inspect the retained text after it finishes. Long thought blocks retain their latest 8,000 characters. Thinking availability depends on the selected model and provider.
+OMP replies appear as text arrives. The live activity row shows the reported tool intent or native thinking preview. **Waiting for response** means the provider is still running without reported live activity; a completed tool is not shown as still running. Expand **Thought process** to inspect retained thinking after it finishes. Long thought blocks retain their latest 8,000 characters. Thinking availability depends on the selected model and provider.
+
+Delivered advisor findings appear as expandable **Advisor feedback** in the activity history, with severity and advisor name when supplied by OMP. Feedback can arrive during a task or after its answer. This shows delivered findings, not private advisor reasoning or an inferred advisor health status. It requires the D3 extension; findings previously omitted by ACP are not retroactively imported.
+
+D3 tries to restore advisor feedback once if its connection drops, without retrying or cancelling your task. Some feedback may be missed during a disconnect. If feedback stops, wait until the task is idle and reopen the provider session.
+
+If an OMP model request fails, D3 marks the turn as failed while keeping any partial output. Review the output and workspace before sending another message; D3 does not automatically resubmit the failed prompt. Native failure reporting requires the D3 extension to load in OMP. If its outcome cannot be read, D3 retains the status reported by ACP.
 
 ## Models and profiles
 

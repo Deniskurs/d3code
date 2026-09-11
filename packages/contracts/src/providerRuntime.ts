@@ -196,6 +196,7 @@ const ProviderRuntimeEventType = Schema.Literals([
   "config.warning",
   "deprecation.notice",
   "files.persisted",
+  "advisor.findings",
   "runtime.warning",
   "runtime.error",
 ]);
@@ -248,6 +249,7 @@ const ConfigWarningType = Schema.Literal("config.warning");
 const DeprecationNoticeType = Schema.Literal("deprecation.notice");
 const FilesPersistedType = Schema.Literal("files.persisted");
 const ToolDeniedType = Schema.Literal("tool.denied");
+const AdvisorFindingsType = Schema.Literal("advisor.findings");
 const RuntimeWarningType = Schema.Literal("runtime.warning");
 const RuntimeErrorType = Schema.Literal("runtime.error");
 
@@ -855,6 +857,18 @@ const ToolDeniedPayload = Schema.Struct({
 });
 export type ToolDeniedPayload = typeof ToolDeniedPayload.Type;
 
+export const AdvisorFindingNote = Schema.Struct({
+  note: Schema.NonEmptyString,
+  severity: Schema.optional(Schema.Literals(["nit", "concern", "blocker"])),
+  advisor: Schema.optional(Schema.String),
+});
+export type AdvisorFindingNote = typeof AdvisorFindingNote.Type;
+
+const AdvisorFindingsPayload = Schema.Struct({
+  notes: Schema.Array(AdvisorFindingNote),
+});
+export type AdvisorFindingsPayload = typeof AdvisorFindingsPayload.Type;
+
 const RuntimeWarningPayload = Schema.Struct({
   message: TrimmedNonEmptyStringSchema,
   detail: Schema.optional(Schema.Unknown),
@@ -1214,6 +1228,13 @@ const ProviderRuntimeToolDeniedEvent = Schema.Struct({
 });
 export type ProviderRuntimeToolDeniedEvent = typeof ProviderRuntimeToolDeniedEvent.Type;
 
+const ProviderRuntimeAdvisorFindingsEvent = Schema.Struct({
+  ...ProviderRuntimeEventBase.fields,
+  type: AdvisorFindingsType,
+  payload: AdvisorFindingsPayload,
+});
+export type ProviderRuntimeAdvisorFindingsEvent = typeof ProviderRuntimeAdvisorFindingsEvent.Type;
+
 const ProviderRuntimeWarningEvent = Schema.Struct({
   ...ProviderRuntimeEventBase.fields,
   type: RuntimeWarningType,
@@ -1276,6 +1297,7 @@ export const ProviderRuntimeEventV2 = Schema.Union([
   ProviderRuntimeDeprecationNoticeEvent,
   ProviderRuntimeFilesPersistedEvent,
   ProviderRuntimeToolDeniedEvent,
+  ProviderRuntimeAdvisorFindingsEvent,
   ProviderRuntimeWarningEvent,
   ProviderRuntimeErrorEvent,
 ]);

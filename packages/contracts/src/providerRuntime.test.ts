@@ -14,6 +14,39 @@ describe("ProviderRuntimeEvent", () => {
     expectTypeOf<ProviderRuntimeEvent["type"]>().toEqualTypeOf<ProviderRuntimeEventType>();
   });
 
+  it("decodes public advisor notes without interpreting them as primary turn events", () => {
+    const event = {
+      type: "advisor.findings",
+      eventId: "omp-advisor:bridge-1:2",
+      provider: "omp",
+      createdAt: "2026-09-11T16:00:01.000Z",
+      threadId: "thread-1",
+      payload: {
+        notes: [
+          {
+            note: "Keep writes atomic.\nPreserve rollback.",
+            severity: "blocker",
+            advisor: "Safety",
+          },
+          { note: "Retain this public note." },
+        ],
+      },
+    };
+    expect(decodeRuntimeEvent(event)).toEqual(event);
+    expect(() =>
+      decodeRuntimeEvent({
+        ...event,
+        payload: { notes: [{ note: "Unrecognized severity", severity: "fatal" }] },
+      }),
+    ).toThrow();
+    expect(() =>
+      decodeRuntimeEvent({
+        ...event,
+        payload: { notes: [{ note: "" }] },
+      }),
+    ).toThrow();
+  });
+
   it("requires input and output totals for complete turn usage", () => {
     const completeEvent = {
       type: "turn.completed",

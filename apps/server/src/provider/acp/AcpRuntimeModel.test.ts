@@ -258,6 +258,182 @@ describe("AcpRuntimeModel", () => {
     }
   });
 
+  it("retains tool intent through content-only progress and completion while accepting a new title", () => {
+    const updates = [
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "tool-intent",
+        title: "Inspecting repository instructions",
+        kind: "other",
+        status: "pending",
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tool-intent",
+        status: "in_progress",
+        content: [{ type: "content", content: { type: "text", text: "Found AGENTS.md" } }],
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tool-intent",
+        title: "Inspecting package instructions",
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tool-intent",
+        kind: "other",
+        status: "completed",
+        content: [{ type: "content", content: { type: "text", text: "Read all instructions" } }],
+        rawOutput: { filesRead: 2 },
+      },
+    ] satisfies Array<EffectAcpSchema.SessionNotification["update"]>;
+    let state: AcpToolCallState | undefined;
+    const states = updates.map((update) => {
+      const event = parseSessionUpdateEvent({ sessionId: "session-1", update }).events[0];
+      if (event?._tag !== "ToolCallUpdated") {
+        throw new Error("expected a ToolCallUpdated event");
+      }
+      state = mergeToolCallState(state, event.toolCall);
+      return state;
+    });
+
+    expect(states[1]).toMatchObject({
+      title: "Inspecting repository instructions",
+      status: "inProgress",
+      detail: "Found AGENTS.md",
+    });
+    expect(states[2]?.title).toBe("Inspecting package instructions");
+    expect(states[3]).toMatchObject({
+      title: "Inspecting package instructions",
+      status: "completed",
+      detail: "Read all instructions",
+      data: {
+        content: [{ type: "content", content: { type: "text", text: "Read all instructions" } }],
+        rawOutput: { filesRead: 2 },
+      },
+    });
+  });
+
+  it("keeps command intent separate from current output across partial tool updates", () => {
+    const updates = [
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "tool-command",
+        title: "Checking server types",
+        kind: "execute",
+        status: "pending",
+        rawInput: { command: "bun run typecheck" },
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tool-command",
+        status: "in_progress",
+        content: [{ type: "content", content: { type: "text", text: "Checking packages" } }],
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tool-command",
+        rawInput: { command: "bun run typecheck --filter server" },
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tool-command",
+        status: "completed",
+        content: [{ type: "content", content: { type: "text", text: "No errors" } }],
+        rawOutput: { exitCode: 0 },
+      },
+    ] satisfies Array<EffectAcpSchema.SessionNotification["update"]>;
+    let state: AcpToolCallState | undefined;
+    const states = updates.map((update) => {
+      const event = parseSessionUpdateEvent({ sessionId: "session-1", update }).events[0];
+      if (event?._tag !== "ToolCallUpdated") {
+        throw new Error("expected a ToolCallUpdated event");
+      }
+      state = mergeToolCallState(state, event.toolCall);
+      return state;
+    });
+
+    expect(states[0]?.title).toBe("Checking server types");
+    expect(states[1]).toMatchObject({
+      title: "Checking server types",
+      command: "bun run typecheck",
+      detail: "bun run typecheck",
+      data: {
+        content: [{ type: "content", content: { type: "text", text: "Checking packages" } }],
+      },
+    });
+    expect(states[2]).toMatchObject({
+      title: "Checking server types",
+      command: "bun run typecheck --filter server",
+      detail: "bun run typecheck --filter server",
+    });
+    expect(states[3]).toMatchObject({
+      title: "Checking server types",
+      status: "completed",
+      command: "bun run typecheck --filter server",
+      detail: "bun run typecheck --filter server",
+      data: {
+        content: [{ type: "content", content: { type: "text", text: "No errors" } }],
+        rawOutput: { exitCode: 0 },
+      },
+    });
+  });
+
+  it("preserves file detail through output updates and replaces it when raw input changes", () => {
+    const updates = [
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "tool-read",
+        title: "Reading source definitions",
+        kind: "read",
+        rawInput: { path: "src/first.ts" },
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tool-read",
+        content: [{ type: "content", content: { type: "text", text: "export const first = 1;" } }],
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tool-read",
+        rawInput: { path: "src/second.ts" },
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tool-read",
+        status: "completed",
+        content: [{ type: "content", content: { type: "text", text: "export const second = 2;" } }],
+      },
+    ] satisfies Array<EffectAcpSchema.SessionNotification["update"]>;
+    let state: AcpToolCallState | undefined;
+    const states = updates.map((update) => {
+      const event = parseSessionUpdateEvent({ sessionId: "session-1", update }).events[0];
+      if (event?._tag !== "ToolCallUpdated") {
+        throw new Error("expected a ToolCallUpdated event");
+      }
+      state = mergeToolCallState(state, event.toolCall);
+      return state;
+    });
+
+    expect(states[0]?.title).toBe("Reading source definitions");
+    expect(states[1]).toMatchObject({
+      title: "Reading source definitions",
+      detail: "src/first.ts",
+    });
+    expect(states[2]).toMatchObject({
+      title: "Reading source definitions",
+      detail: "src/second.ts",
+    });
+    expect(states[3]).toMatchObject({
+      title: "Reading source definitions",
+      detail: "src/second.ts",
+      status: "completed",
+      data: {
+        content: [{ type: "content", content: { type: "text", text: "export const second = 2;" } }],
+      },
+    });
+  });
+
   it("trims padded current mode updates before emitting a mode change", () => {
     const result = parseSessionUpdateEvent({
       sessionId: "session-1",

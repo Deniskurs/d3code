@@ -482,6 +482,29 @@ export function runtimeEventToActivities(
       ];
     }
 
+    case "advisor.findings": {
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "advisor.feedback",
+          summary: "Advisor feedback",
+          payload: {
+            notes: event.payload.notes,
+            detail: event.payload.notes
+              .map(
+                ({ note, severity, advisor }) =>
+                  `${severity ? `[${severity}] ` : ""}${advisor ? `${advisor}: ` : ""}${note}`,
+              )
+              .join("\n\n"),
+          },
+          turnId: null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
     case "runtime.warning": {
       return [
         {

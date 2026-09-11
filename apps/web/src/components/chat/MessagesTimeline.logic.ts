@@ -21,7 +21,6 @@ import {
   inferCheckpointTurnCountByTurnId,
   isStreamingMessageTextUpdate,
   workEntryDisplayIndicatesToolFailure,
-  workEntryIndicatesToolSuccess,
   workEntryIndicatesToolNeutralStatus,
   workLogEntryIsToolLike,
   type TimelineEntry,
@@ -48,6 +47,11 @@ function singleToolCallLabel(entry: WorkLogEntry): string {
 
 export function workEntryDisplayLabel(entry: WorkLogEntry, workspaceRoot: string | undefined) {
   if (entry.sourceActivityKind?.startsWith("reasoning.")) return "Thought process";
+  if (
+    entry.sourceActivityKind === "runtime.warning" ||
+    entry.sourceActivityKind === "advisor.feedback"
+  )
+    return entry.label;
   const toolPresentation = resolveWorkEntryToolPresentation(entry);
   if (toolPresentation) return toolPresentation.displayName;
   if (entry.command) return entry.command;
@@ -90,6 +94,10 @@ export function liveWorkEntryLabel(
               ? "Stopped"
               : "Ran";
     return `${verb} ${commandProgramName(command) ?? "command"}`;
+  }
+  if (entry.toolTitle?.trim()) {
+    const heading = normalizeCompactToolLabel(entry.toolTitle);
+    return `${heading.charAt(0).toUpperCase()}${heading.slice(1)}`;
   }
   return workEntryDisplayLabel(entry, workspaceRoot);
 }
@@ -396,7 +404,7 @@ export type MessagesTimelineRow =
       createdAt: string | null;
     }
   | {
-      kind: "thinking";
+      kind: "waiting";
       id: string;
       createdAt: string | null;
     };
@@ -950,10 +958,7 @@ export function deriveMessagesTimelineRows(input: {
     latestVisibleToolEntry !== undefined &&
     latestVisibleToolEntry.entry.toolLifecycleStatus !== "declined" &&
     workEntryDisplayIndicatesToolFailure(latestVisibleToolEntry.entry);
-  const latestToolKeepsActivityLive =
-    latestRunningToolEntry !== undefined ||
-    (latestVisibleToolEntry !== undefined &&
-      workEntryIndicatesToolSuccess(latestVisibleToolEntry.entry));
+  const latestToolKeepsActivityLive = latestRunningToolEntry !== undefined;
   const activeWorkPlacementEntryId = latestVisibleToolEntry?.id;
   const activeWorkRow =
     activeWorkAnchor && latestVisibleToolEntry && !latestToolFailed
@@ -1053,7 +1058,12 @@ export function deriveMessagesTimelineRows(input: {
     }
 
     if (timelineEntry.kind === "work") {
-      if (timelineEntry.entry.agentSpawn !== undefined || timelineEntry.entry.tone === "error") {
+      if (
+        timelineEntry.entry.agentSpawn !== undefined ||
+        timelineEntry.entry.tone === "error" ||
+        timelineEntry.entry.sourceActivityKind === "advisor.feedback" ||
+        timelineEntry.entry.sourceActivityKind === "runtime.warning"
+      ) {
         nextRows.push({
           kind: "work",
           id: timelineEntry.id,
@@ -1072,6 +1082,8 @@ export function deriveMessagesTimelineRows(input: {
           nextEntry.kind !== "work" ||
           nextEntry.entry.agentSpawn !== undefined ||
           nextEntry.entry.sourceActivityKind === "context-compaction" ||
+          nextEntry.entry.sourceActivityKind === "advisor.feedback" ||
+          nextEntry.entry.sourceActivityKind === "runtime.warning" ||
           nextEntry.entry.tone === "error" ||
           activeWorkEntryIds.has(nextEntry.id) ||
           collapsedEntryIds.has(nextEntry.id) ||
@@ -1240,7 +1252,7 @@ export function deriveMessagesTimelineRows(input: {
   }
   if (input.isWorking && (!hasActivityRow || latestToolFailed)) {
     nextRows.push({
-      kind: "thinking",
+      kind: "waiting",
       id: LIVE_ACTIVITY_ROW_ID,
       createdAt: input.activeTurnStartedAt,
     });
@@ -1349,7 +1361,7 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
 
   switch (a.kind) {
     case "working":
-    case "thinking":
+    case "waiting":
       return a.createdAt === (b as typeof a).createdAt;
 
     case "assistant-meta": {

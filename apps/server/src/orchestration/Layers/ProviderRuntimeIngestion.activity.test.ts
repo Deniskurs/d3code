@@ -15,6 +15,42 @@ const base = {
   threadId: ThreadId.make("thread-1"),
 };
 
+describe("runtimeEventToActivities advisor findings", () => {
+  it("retains attributed notes as informational feedback rather than a runtime fault", () => {
+    const notes = [
+      {
+        note: "Keep the transaction atomic.\nDo not drop rollback.",
+        severity: "blocker",
+        advisor: "Safety",
+      },
+      { note: "Keep the existing name.", severity: "nit" },
+      { note: "The answer remains useful." },
+    ] as const;
+    const event = {
+      ...base,
+      type: "advisor.findings",
+      eventId: EventId.make("omp-advisor:bridge-1:4"),
+      payload: { notes },
+    } satisfies ProviderRuntimeEvent;
+
+    expect(runtimeEventToActivities(event)).toEqual([
+      {
+        id: event.eventId,
+        createdAt: event.createdAt,
+        kind: "advisor.feedback",
+        tone: "info",
+        summary: "Advisor feedback",
+        turnId: null,
+        payload: {
+          notes,
+          detail:
+            "[blocker] Safety: Keep the transaction atomic.\nDo not drop rollback.\n\n[nit] Keep the existing name.\n\nThe answer remains useful.",
+        },
+      },
+    ]);
+  });
+});
+
 describe("runtimeEventToActivities task progress", () => {
   it("persists usage independently from replaceable activity", () => {
     const taskId = RuntimeTaskId.make("agent-1");

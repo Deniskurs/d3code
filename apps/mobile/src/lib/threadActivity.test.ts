@@ -654,6 +654,40 @@ describe("buildThreadFeed", () => {
     expect(row?.canExpand).toBe(input.canExpand);
   });
 
+  it("keeps advisor notes expandable and distinct from faults, thinking, and messages", () => {
+    const detail = "[blocker] Safety: Preserve the reported output:\n<exited with exit code 1>";
+    const thread = makeThread({
+      id: ThreadId.make("thread-advisor"),
+      projectId: ProjectId.make("project-1"),
+      title: "Advisor feedback",
+      activities: [
+        makeActivity({
+          id: EventId.make("advisor-feedback"),
+          createdAt: "2026-09-11T12:00:00.000Z",
+          kind: "advisor.feedback",
+          summary: "Advisor feedback",
+          tone: "info",
+          turnId: null,
+          payload: { detail },
+        }),
+      ],
+    });
+    const [group] = buildThreadFeed(thread);
+    expect(group?.type).toBe("activity-group");
+    if (group?.type !== "activity-group") throw new Error("Expected advisor activity");
+    const row = group.activities[0]!;
+    expect(row.status).toBeNull();
+    expect(row.icon).not.toBe("warning");
+    expect(row.icon).not.toBe("alert");
+    expect(row.workEntry.tone).toBe("info");
+    expect(row.workEntry.turnId).toBeNull();
+    expect(row.canExpand).toBe(true);
+    expect(workEntryRowLabel(row.workEntry)).toBe(row.workEntry.label);
+    expect(workEntryRowLabel(row.workEntry, true)).toBe(row.workEntry.label);
+    expect(row.workEntry.detail).toBe(detail);
+    expect(row.getFullDetail()).toBe(detail);
+  });
+
   it.each(["runtime.error", "runtime.warning"] as const)(
     "shows and copies the message of %s without a duplicate expanded body",
     (kind) => {
@@ -1462,10 +1496,11 @@ describe("buildThreadFeed", () => {
     ).toMatchObject([
       {
         type: "work-toggle",
-        summary: "Clicking in the preview browser",
+        summary: "Clicked in the preview browser",
         summaryToolIcon: "browser",
         live: true,
       },
+      { type: "thinking" },
     ]);
   });
 
@@ -1473,7 +1508,7 @@ describe("buildThreadFeed", () => {
     {
       status: "completed",
       displayName: "Clicked in the preview browser",
-      liveDisplayName: "Clicking in the preview browser",
+      liveDisplayName: "Clicked in the preview browser",
       detail: "Clicked Continue",
       hasFailure: false,
     },
@@ -1585,8 +1620,7 @@ describe("buildThreadFeed", () => {
           summaryToolIcon: "browser",
           hasFailure,
           live: true,
-          // A successful trailing call keeps shining; a failure hands off to "Thinking".
-          shimmer: !hasFailure,
+          shimmer: false,
         },
         {
           type: "activity-group",
@@ -1600,7 +1634,7 @@ describe("buildThreadFeed", () => {
             },
           ],
         },
-        ...(hasFailure ? [{ type: "thinking", turnId }] : []),
+        { type: "thinking", turnId },
       ]);
       const terminalGroup = terminalRows[1];
       if (terminalGroup?.type !== "activity-group") return;
@@ -2149,7 +2183,7 @@ describe("buildThreadFeed", () => {
       (
         [
           { lifecycleStatus: "inProgress", summary: "Running pnpm", shimmer: true },
-          { lifecycleStatus: "completed", summary: "Running pnpm", shimmer: true },
+          { lifecycleStatus: "completed", summary: "Ran pnpm", shimmer: false },
           { lifecycleStatus: "failed", summary: "Failed pnpm", shimmer: false },
           { lifecycleStatus: "declined", summary: "Declined pnpm", shimmer: false },
           { lifecycleStatus: "stopped", summary: "Stopped pnpm", shimmer: false },

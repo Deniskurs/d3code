@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeFS from "node:fs";
+import * as NodeHttp from "node:http";
 import * as NodeURL from "node:url";
 
 import * as Effect from "effect/Effect";
@@ -373,15 +374,46 @@ const program = Effect.gen(function* () {
   const resumeRelease = yield* Deferred.make<void>();
   const steeringReceived = yield* Deferred.make<string>();
   const steeringTest = process.env.T3_ACP_OMP_STEERING === "1";
-  if (steeringTest) {
+  const ompOutcome = process.env.T3_ACP_OMP_OUTCOME;
+  const advisorControlPath = process.env.T3_ACP_OMP_ADVISOR_CONTROL;
+  const advisorPromptRelease = yield* Deferred.make<void>();
+  let advisorPromptActive = false;
+  const ompHandlers = new Map<string, (event: unknown, context?: unknown) => void>();
+  const ompEntries: Array<{
+    id: string;
+    parentId: string | null;
+    type: "message";
+    message: Record<string, unknown>;
+  }> = [];
+  const appendOmpMessage = (message: Record<string, unknown>) => {
+    ompEntries.push({
+      id: `native-${ompEntries.length}`,
+      parentId: ompEntries.at(-1)?.id ?? null,
+      type: "message",
+      message,
+    });
+  };
+  const ompContext = {
+    isIdle: () => !steeringTest && !advisorPromptActive,
+    sessionManager: {
+      getSessionId: () => sessionId,
+      getLeafId: () => ompEntries.at(-1)?.id ?? null,
+      getEntry: (id: string) => {
+        if (ompOutcome === "unavailable") throw new Error("Native history unavailable");
+        return ompEntries.find((entry) => entry.id === id);
+      },
+    },
+  };
+  if (steeringTest || ompOutcome || advisorControlPath) {
     const extensionPath = process.argv[process.argv.indexOf("--extension") + 1];
     if (!extensionPath) return yield* Effect.die("Missing OMP steering extension");
     const extension = yield* Effect.promise(
       () => import(NodeURL.pathToFileURL(extensionPath).href),
     );
-    extension.default({
-      on: (event: string, handler: (event: unknown, context: unknown) => void) => {
-        if (event === "session_start") handler({}, { isIdle: () => false });
+    const server = extension.default({
+      on: (event: string, handler: (event: unknown, context?: unknown) => void) => {
+        ompHandlers.set(event, handler);
+        if (event === "session_start") handler({}, ompContext);
       },
       sendUserMessage: (
         content: { type: string; text?: string }[],
@@ -394,6 +426,63 @@ const program = Effect.gen(function* () {
         }
       },
     });
+    yield* Effect.promise(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          if (server.listening) resolve();
+          else {
+            server.once("listening", resolve);
+            server.once("error", reject);
+          }
+        }),
+    );
+  }
+  if (advisorControlPath) {
+    // Only the fixture exposes this control socket. Findings still enter the real
+    // generated extension through OMP's public, pre-persistence message_end hook.
+    const control = NodeHttp.createServer(async (request, response) => {
+      try {
+        let body = "";
+        for await (const chunk of request) body += chunk.toString();
+        if (request.url === "/complete") {
+          Effect.runSync(Deferred.succeed(advisorPromptRelease, undefined));
+        } else {
+          const emission = JSON.parse(body) as {
+            message: Record<string, unknown>;
+            sessionId?: string;
+          };
+          ompHandlers.get("message_end")?.(
+            { type: "message_end", message: emission.message },
+            {
+              ...ompContext,
+              sessionManager: {
+                ...ompContext.sessionManager,
+                getSessionId: () => emission.sessionId ?? sessionId,
+              },
+            },
+          );
+          appendOmpMessage(emission.message);
+        }
+        response.writeHead(204);
+        response.end();
+      } catch {
+        response.writeHead(500);
+        response.end();
+      }
+    });
+    yield* Effect.promise(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          control.once("error", reject);
+          control.listen(advisorControlPath, resolve);
+        }),
+    );
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => {
+        control.closeAllConnections();
+        control.close();
+      }),
+    );
   }
   const nativeCancelRequested = yield* Deferred.make<void>();
   const nativeCancelRelease = yield* Deferred.make<void>();
@@ -463,6 +552,18 @@ const program = Effect.gen(function* () {
 
   yield* agent.handleCreateSession(() =>
     Effect.gen(function* () {
+      if (advisorControlPath && process.env.T3_ACP_OMP_ADVISOR_STARTUP === "1") {
+        const message = {
+          role: "custom",
+          customType: "advisor",
+          display: true,
+          content: "Startup feedback",
+          details: { notes: [{ note: "Delivered before ACP startup completed" }] },
+          timestamp: 1_789_142_400_000,
+        };
+        ompHandlers.get("message_end")?.({ type: "message_end", message }, ompContext);
+        appendOmpMessage(message);
+      }
       if (antigravityProfile || process.env.T3_ACP_COMMANDS === "1") {
         yield* publishAntigravityCommands(sessionId);
       }
@@ -655,6 +756,51 @@ const program = Effect.gen(function* () {
     Effect.gen(function* () {
       const requestedSessionId = String(request.sessionId ?? sessionId);
       promptCount += 1;
+      if (advisorControlPath) {
+        advisorPromptActive = true;
+        const text = promptResponseText ?? "<advisor>ordinary assistant text</advisor>";
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text },
+          },
+        });
+        yield* Deferred.await(advisorPromptRelease);
+        advisorPromptActive = false;
+        appendOmpMessage({
+          role: "assistant",
+          stopReason: "stop",
+          content: [{ type: "text", text }],
+        });
+        return { stopReason: "end_turn" };
+      }
+      if (ompOutcome) {
+        const errorMessage = "The operation was aborted";
+        const failed = ompOutcome === "error" && promptCount === 1;
+        const aborted = ompOutcome === "aborted";
+        const message = {
+          role: "assistant",
+          stopReason: failed ? "error" : aborted ? "aborted" : "stop",
+          ...(failed ? { errorMessage } : {}),
+          content: [
+            { type: "text" as const, text: failed ? "Partial work retained." : errorMessage },
+          ],
+        };
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: message.content[0]!,
+          },
+        });
+        if (ompOutcome === "retry") {
+          appendOmpMessage({ role: "assistant", stopReason: "error", errorMessage });
+        }
+        appendOmpMessage(message);
+        // OMP 18.1.17 reports provider errors as successful ACP end_turn replies.
+        return { stopReason: aborted ? "cancelled" : "end_turn" };
+      }
       if (process.env.T3_ACP_EMIT_THINKING === "1") {
         for (const text of ["Checking the project. ", "Then I will explain the result."]) {
           yield* agent.client.sessionUpdate({

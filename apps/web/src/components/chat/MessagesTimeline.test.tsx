@@ -2,6 +2,7 @@ import {
   ApprovalRequestId,
   CheckpointRef,
   EnvironmentId,
+  EventId,
   MessageId,
   TurnId,
 } from "@t3tools/contracts";
@@ -12,6 +13,7 @@ import { beforeAll, describe, expect, it, vi } from "vite-plus/test";
 import type { LegendListRef, MaintainScrollAtEndOptions } from "@legendapp/list/react";
 import { shouldUseRestingComposerLayout } from "../composerFooterLayout";
 import { useComposerFocusState } from "./useComposerFocusState";
+import { deriveWorkLogEntries } from "../../session-logic";
 
 vi.mock("@legendapp/list/react", async () => {
   const legendListTestId = "legend-list";
@@ -289,6 +291,90 @@ describe("MessagesTimeline", () => {
 
     expect(markup).toContain('aria-label="Previous turn"');
     expect(markup).toContain('aria-label="Next turn"');
+  });
+
+  it("expands advisor findings without warning styling and leaves real warnings styled", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal("requestAnimationFrame", () => 0);
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+    const note =
+      "Handle file not found without dropping committed work.\n<exited with exit code 1>";
+    const detail = `[blocker] Safety: ${note}`;
+    const entries = deriveWorkLogEntries([
+      {
+        id: EventId.make("advisor-feedback"),
+        createdAt: MESSAGE_CREATED_AT,
+        turnId: null,
+        kind: "advisor.feedback",
+        summary: "Advisor feedback",
+        tone: "info",
+        payload: {
+          notes: [
+            {
+              note,
+              severity: "blocker",
+              advisor: "Safety",
+            },
+          ],
+          detail,
+        },
+      },
+      {
+        id: EventId.make("runtime-warning"),
+        createdAt: MESSAGE_CREATED_AT,
+        turnId: null,
+        kind: "runtime.warning",
+        summary: "Observer transport unavailable",
+        tone: "info",
+        payload: { detail: "The observer connection has closed." },
+      },
+    ]);
+    let renderer: ReactTestRenderer | undefined;
+    try {
+      await act(() => {
+        renderer = create(
+          <MessagesTimeline
+            {...buildProps()}
+            timelineEntries={entries.map((entry) => ({
+              id: entry.id,
+              kind: "work" as const,
+              createdAt: entry.createdAt,
+              entry,
+            }))}
+          />,
+        );
+      });
+      const advisorRow = () =>
+        renderer!.root.findByProps({ role: "button", "aria-label": "Advisor feedback" });
+      const warningRow = renderer!.root.findByProps({
+        role: "button",
+        "aria-label": "Observer transport unavailable",
+      });
+      expect(advisorRow().props["aria-expanded"]).toBe(false);
+      expect(
+        advisorRow().findAll(
+          (node) =>
+            typeof node.props.className === "string" &&
+            /text-(?:warning|destructive)/.test(node.props.className),
+        ),
+      ).toHaveLength(0);
+      expect(
+        warningRow.findAll(
+          (node) =>
+            typeof node.props.className === "string" &&
+            node.props.className.includes("text-warning"),
+        ).length,
+      ).toBeGreaterThan(0);
+      expect(renderer!.root.findAllByType("pre")).toHaveLength(0);
+      await act(() => advisorRow().props.onClick());
+      expect(advisorRow().props["aria-expanded"]).toBe(true);
+      expect(renderer!.root.findByType("pre").children.join("")).toBe(detail);
+      await act(() => advisorRow().props.onKeyDown({ key: "Enter", preventDefault() {} }));
+      expect(advisorRow().props["aria-expanded"]).toBe(false);
+      expect(renderer!.root.findAllByType("pre")).toHaveLength(0);
+    } finally {
+      await act(() => renderer?.unmount());
+    }
   });
 
   // Expanding history uses this suite's existing test renderer, deprecated in
@@ -1455,45 +1541,6 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain('aria-label="Hidden work includes a failure"');
   });
 
-  it("shows the one-line label for a live tool group", () => {
-    const turnId = TurnId.make("turn-live");
-    const markup = renderToStaticMarkup(
-      <MessagesTimeline
-        {...buildProps()}
-        isWorking
-        activeTurnStartedAt={MESSAGE_CREATED_AT}
-        latestTurn={{
-          turnId,
-          state: "running",
-          startedAt: MESSAGE_CREATED_AT,
-          completedAt: null,
-        }}
-        runningTurnId={turnId}
-        timelineEntries={[
-          {
-            id: "entry-live",
-            kind: "work",
-            createdAt: MESSAGE_CREATED_AT,
-            entry: {
-              id: "work-live",
-              createdAt: MESSAGE_CREATED_AT,
-              turnId,
-              toolCallId: "call-live",
-              label: "Run tests",
-              tone: "tool",
-              itemType: "command_execution",
-              command: "pnpm test",
-              toolLifecycleStatus: "inProgress",
-            },
-          },
-        ]}
-      />,
-    );
-
-    expect(markup).toContain("Working for");
-    expect(markup).toContain("Running pnpm");
-  });
-
   it("scopes a live row failure to the tool named by the row", () => {
     const turnId = TurnId.make("turn-live");
     const markup = renderToStaticMarkup(
@@ -1547,71 +1594,6 @@ describe("MessagesTimeline", () => {
 
     expect(markup).toContain("Running pnpm");
     expect(markup).not.toContain("tool call failed");
-  });
-
-  it("renders initial thinking as the shared live activity row", () => {
-    const turnId = TurnId.make("turn-live");
-    const markup = renderToStaticMarkup(
-      <MessagesTimeline
-        {...buildProps()}
-        isWorking
-        activeTurnStartedAt={MESSAGE_CREATED_AT}
-        latestTurn={{
-          turnId,
-          state: "running",
-          startedAt: MESSAGE_CREATED_AT,
-          completedAt: null,
-        }}
-        runningTurnId={turnId}
-        timelineEntries={[]}
-      />,
-    );
-
-    expect(markup).toContain("Thinking");
-    expect(markup).toContain("lucide-brain");
-    expect(markup).toContain('data-timeline-row-id="live-activity-row"');
-  });
-
-  it("keeps the completed command in the shared activity row with a present-tense label", () => {
-    const turnId = TurnId.make("turn-live");
-    const markup = renderToStaticMarkup(
-      <MessagesTimeline
-        {...buildProps()}
-        isWorking
-        activeTurnStartedAt={MESSAGE_CREATED_AT}
-        latestTurn={{
-          turnId,
-          state: "running",
-          startedAt: MESSAGE_CREATED_AT,
-          completedAt: null,
-        }}
-        runningTurnId={turnId}
-        timelineEntries={[
-          {
-            id: "entry-completed",
-            kind: "work",
-            createdAt: MESSAGE_CREATED_AT,
-            entry: {
-              id: "work-completed",
-              createdAt: MESSAGE_CREATED_AT,
-              turnId,
-              toolCallId: "call-completed",
-              label: "Run lint",
-              tone: "tool",
-              itemType: "command_execution",
-              command: "pnpm lint",
-              toolLifecycleStatus: "completed",
-            },
-          },
-        ]}
-      />,
-    );
-
-    expect(markup).toContain("Running pnpm");
-    expect(markup).toContain("lucide-terminal");
-    expect(markup).not.toContain("Ran pnpm");
-    expect(markup).not.toContain("Thinking");
-    expect(markup).not.toContain('data-timeline-row-kind="thinking"');
   });
 
   it("renders review comment contexts as structured cards instead of raw tags", () => {

@@ -555,11 +555,13 @@ function makeToolCallState(
         fallbackSummary: title ?? "Tool",
       })
     : undefined;
+  // ACP updates omit unchanged fields. A content-derived fallback is not a new title.
+  const displayTitle = normalizedTitle ?? (title ? presentation?.summary : undefined);
   const status = normalizeToolCallStatus(input.status, options?.fallbackStatus);
   return {
     toolCallId,
     ...(kind ? { kind } : {}),
-    ...(presentation?.summary ? { title: presentation.summary } : {}),
+    ...(displayTitle ? { title: displayTitle } : {}),
     ...(status ? { status } : {}),
     ...(command ? { command } : {}),
     ...(presentation?.detail ? { detail: presentation.detail } : {}),
@@ -592,12 +594,23 @@ export function mergeToolCallState(
   previous: AcpToolCallState | undefined,
   next: AcpToolCallState,
 ): AcpToolCallState {
+  if (!previous) {
+    return next;
+  }
   const nextKind = typeof next.data.kind === "string" ? next.data.kind : undefined;
   const kind = nextKind ?? previous?.kind;
   const title = next.title ?? previous?.title;
   const status = next.status ?? previous?.status;
   const command = next.command ?? previous?.command;
-  const detail = next.detail ?? previous?.detail;
+  const data = { ...previous.data, ...next.data };
+  // Derive detail with the retained input/kind, not from an isolated output packet.
+  const { detail } = deriveToolActivityPresentation({
+    itemType: canonicalItemTypeFromAcpToolKind(kind),
+    title,
+    detail: command ?? next.detail ?? previous.detail,
+    data,
+    fallbackSummary: title ?? "Tool",
+  });
   return {
     toolCallId: next.toolCallId,
     ...(kind ? { kind } : {}),
@@ -605,10 +618,7 @@ export function mergeToolCallState(
     ...(status ? { status } : {}),
     ...(command ? { command } : {}),
     ...(detail ? { detail } : {}),
-    data: {
-      ...previous?.data,
-      ...next.data,
-    },
+    data,
   };
 }
 

@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeFSP from "node:fs/promises";
+import * as NodeHttp from "node:http";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
@@ -64,6 +65,25 @@ exec node ${JSON.stringify(mockAgentPath)} "$@"
   await NodeFSP.writeFile(wrapperPath, script, "utf8");
   await NodeFSP.chmod(wrapperPath, 0o755);
   return wrapperPath;
+}
+
+async function controlAdvisorFixture(
+  socketPath: string,
+  path: "/emit" | "/complete",
+  emission?: { message: Record<string, unknown>; sessionId?: string },
+): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const request = NodeHttp.request({ socketPath, path, method: "POST" }, (response) => {
+      response.resume();
+      response.once("end", () => {
+        if (response.statusCode === 204) resolve();
+        else reject(new Error(`Advisor fixture returned ${response.statusCode}`));
+      });
+      response.once("error", reject);
+    });
+    request.once("error", reject);
+    request.end(JSON.stringify(emission ?? {}));
+  });
 }
 
 const ompAdapterTestLayer = it.layer(
@@ -392,6 +412,247 @@ faultingNativeLogOmpAdapterTestLayer("OmpAdapter notification recovery", (it) =>
 });
 
 ompAdapterTestLayer("OmpAdapterLive", (it) => {
+  it.effect(
+    "publishes delivered advisor notes once in order during startup, a prompt, and idle",
+    () =>
+      Effect.gen(function* () {
+        const adapter = yield* OmpAdapter;
+        const serverSettings = yield* ServerSettingsService;
+        const directory = yield* Effect.acquireRelease(
+          Effect.promise(() => NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "omp-advisor-"))),
+          (path) => Effect.promise(() => NodeFSP.rm(path, { recursive: true, force: true })),
+        );
+        const controlPath = NodePath.join(directory, "control.sock");
+        const wrapperPath = yield* Effect.promise(() =>
+          makeMockAgentWrapper({
+            T3_ACP_OMP_ADVISOR_CONTROL: controlPath,
+            T3_ACP_OMP_ADVISOR_STARTUP: "1",
+          }),
+        );
+        yield* serverSettings.updateSettings({
+          providers: { omp: { binaryPath: wrapperPath, enabled: true } },
+        });
+        const threadId = ThreadId.make("omp-delivered-advisors");
+        yield* Effect.addFinalizer(() => adapter.stopSession(threadId).pipe(Effect.ignore));
+        const eventsFiber = yield* adapter.streamEvents.pipe(
+          Stream.filter((event) => event.threadId === threadId),
+          Stream.takeUntil((event) => event.type === "session.exited"),
+          Stream.runCollect,
+          Effect.forkChild,
+        );
+        const startupFeedback = yield* adapter.streamEvents.pipe(
+          Stream.filter((event) => event.type === "advisor.findings"),
+          Stream.take(1),
+          Stream.runCollect,
+          Effect.forkChild,
+        );
+        yield* adapter.startSession({
+          threadId,
+          provider: ProviderDriverKind.make("omp"),
+          cwd: process.cwd(),
+          runtimeMode: "full-access",
+        });
+        assert.deepEqual((yield* Fiber.join(startupFeedback))[0]?.payload.notes, [
+          { note: "Delivered before ACP startup completed" },
+        ]);
+        const answerStarted = yield* adapter.streamEvents.pipe(
+          Stream.takeUntil((event) => event.type === "content.delta"),
+          Stream.runDrain,
+          Effect.forkChild,
+        );
+        const turn = yield* adapter
+          .sendTurn({
+            threadId,
+            input: "<advisor>ordinary user text</advisor>",
+          })
+          .pipe(Effect.forkChild);
+        yield* Fiber.join(answerStarted);
+        const activeFeedback = yield* adapter.streamEvents.pipe(
+          Stream.filter((event) => event.type === "advisor.findings"),
+          Stream.take(2),
+          Stream.runCollect,
+          Effect.forkChild,
+        );
+        const message = {
+          role: "custom",
+          customType: "advisor",
+          display: true,
+          content: "Private transport content must not be rendered",
+          details: {
+            notes: [
+              { note: "Keep writes atomic", severity: "concern", advisor: "Correctness" },
+              { note: "Name the boundary", severity: "nit" },
+            ] as const,
+            privateThoughts: "Never expose private advisor thoughts",
+          },
+          timestamp: 1_789_142_401_000,
+        };
+        for (const ignored of [
+          { ...message, display: false },
+          { ...message, customType: "other" },
+          { ...message, role: "assistant" },
+          { ...message, role: "user" },
+        ]) {
+          yield* Effect.promise(() =>
+            controlAdvisorFixture(controlPath, "/emit", { message: ignored }),
+          );
+        }
+        yield* Effect.promise(() => controlAdvisorFixture(controlPath, "/emit", { message }));
+        yield* Effect.promise(() =>
+          controlAdvisorFixture(controlPath, "/emit", {
+            message: {
+              ...message,
+              details: {
+                notes: [
+                  { note: "Do not lose committed work", severity: "blocker", advisor: "Safety" },
+                ],
+              },
+              timestamp: message.timestamp + 1,
+            },
+          }),
+        );
+        const active = Array.from(yield* Fiber.join(activeFeedback));
+        assert.deepEqual(
+          active.map((event) => event.payload.notes),
+          [
+            message.details.notes,
+            [{ note: "Do not lose committed work", severity: "blocker", advisor: "Safety" }],
+          ],
+        );
+        assert.isDefined(
+          (yield* adapter.listSessions()).find((session) => session.threadId === threadId)
+            ?.activeTurnId,
+        );
+        yield* Effect.promise(() => controlAdvisorFixture(controlPath, "/complete"));
+        yield* Fiber.join(turn);
+        assert.isUndefined(
+          (yield* adapter.listSessions()).find((session) => session.threadId === threadId)
+            ?.activeTurnId,
+        );
+        const idleFeedback = yield* adapter.streamEvents.pipe(
+          Stream.filter((event) => event.type === "advisor.findings"),
+          Stream.take(1),
+          Stream.runDrain,
+          Effect.forkChild,
+        );
+        yield* Effect.promise(() =>
+          controlAdvisorFixture(controlPath, "/emit", {
+            message: { ...message, details: { notes: [{ note: "Delivered after the answer" }] } },
+          }),
+        );
+        yield* Fiber.join(idleFeedback);
+        const idleSession = (yield* adapter.listSessions()).find(
+          (session) => session.threadId === threadId,
+        );
+        assert.equal(idleSession?.status, "ready");
+        assert.isUndefined(idleSession?.activeTurnId);
+        assert.equal((yield* adapter.readThread(threadId)).turns.length, 1);
+        yield* adapter.stopSession(threadId);
+        const events = Array.from(yield* Fiber.join(eventsFiber));
+        const feedback = events.filter((event) => event.type === "advisor.findings");
+        assert.deepEqual(
+          feedback.map((event) => event.payload.notes),
+          [
+            [{ note: "Delivered before ACP startup completed" }],
+            message.details.notes,
+            [{ note: "Do not lose committed work", severity: "blocker", advisor: "Safety" }],
+            [{ note: "Delivered after the answer" }],
+          ],
+        );
+        assert.equal(new Set(feedback.map((event) => event.eventId)).size, 4);
+        for (const event of feedback) {
+          assert.isUndefined(event.turnId);
+          assert.equal(event.threadId, threadId);
+        }
+        assert.equal(feedback[1]?.createdAt, "2026-09-11T16:00:01.000Z");
+        assert.deepEqual(
+          events
+            .filter((event) => event.type === "content.delta")
+            .map((event) => event.payload.delta),
+          ["<advisor>ordinary assistant text</advisor>"],
+        );
+        assert.equal(events.filter((event) => event.type === "turn.started").length, 1);
+        assert.equal(events.filter((event) => event.type === "turn.completed").length, 1);
+        assert.equal(events.filter((event) => event.type === "runtime.warning").length, 0);
+        assert.equal(events.filter((event) => event.type === "runtime.error").length, 0);
+        assert.isFalse(yield* adapter.hasSession(threadId));
+      }),
+  );
+
+  it.effect(
+    "isolates advisor findings by native session and tears down the watcher before restart",
+    () =>
+      Effect.gen(function* () {
+        const adapter = yield* OmpAdapter;
+        const serverSettings = yield* ServerSettingsService;
+        const directory = yield* Effect.acquireRelease(
+          Effect.promise(() => NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "omp-advisor-"))),
+          (path) => Effect.promise(() => NodeFSP.rm(path, { recursive: true, force: true })),
+        );
+        const threadId = ThreadId.make("omp-advisor-isolation");
+        yield* Effect.addFinalizer(() => adapter.stopSession(threadId).pipe(Effect.ignore));
+        const ids: string[] = [];
+        for (const generation of ["first", "replacement"]) {
+          const controlPath = NodePath.join(directory, `${generation}.sock`);
+          const wrapperPath = yield* Effect.promise(() =>
+            makeMockAgentWrapper({ T3_ACP_OMP_ADVISOR_CONTROL: controlPath }),
+          );
+          yield* serverSettings.updateSettings({
+            providers: { omp: { binaryPath: wrapperPath, enabled: true } },
+          });
+          const eventsFiber = yield* adapter.streamEvents.pipe(
+            Stream.takeUntil((event) => event.type === "session.exited"),
+            Stream.runCollect,
+            Effect.forkChild,
+          );
+          yield* adapter.startSession({
+            threadId,
+            provider: ProviderDriverKind.make("omp"),
+            cwd: process.cwd(),
+            runtimeMode: "full-access",
+          });
+          const received = yield* adapter.streamEvents.pipe(
+            Stream.filter((event) => event.type === "advisor.findings"),
+            Stream.take(1),
+            Stream.runCollect,
+            Effect.forkChild,
+          );
+          const message = {
+            role: "custom",
+            content: "Delivered advisor feedback",
+            customType: "advisor",
+            display: true,
+            details: { notes: [{ note: `${generation} session feedback` }] },
+            timestamp: 1_789_142_401_000,
+          };
+          yield* Effect.promise(() =>
+            controlAdvisorFixture(controlPath, "/emit", {
+              sessionId: "another-native-session",
+              message: {
+                ...message,
+                details: { notes: [{ note: "Foreign session must be dropped" }] },
+              },
+            }),
+          );
+          yield* Effect.promise(() => controlAdvisorFixture(controlPath, "/emit", { message }));
+          const findings = Array.from(yield* Fiber.join(received));
+          assert.deepEqual(findings[0]?.payload.notes, message.details.notes);
+          ids.push(findings[0]!.eventId);
+          yield* adapter.stopSession(threadId);
+          const events = Array.from(yield* Fiber.join(eventsFiber));
+          assert.equal(events.filter((event) => event.type === "advisor.findings").length, 1);
+          assert.equal(events.filter((event) => event.type === "turn.started").length, 0);
+          assert.equal(
+            (yield* Effect.tryPromise(() =>
+              controlAdvisorFixture(controlPath, "/emit", { message }),
+            ).pipe(Effect.exit))._tag,
+            "Failure",
+          );
+        }
+        assert.notEqual(ids[0], ids[1]);
+      }),
+  );
+
   it.effect("streams OMP text and completes native thinking before the answer", () =>
     Effect.gen(function* () {
       const adapter = yield* OmpAdapter;
@@ -1331,6 +1592,101 @@ ompAdapterTestLayer("OmpAdapterLive", (it) => {
       const turn = yield* adapter.sendTurn({ threadId, input: "delete it", attachments: [] });
 
       assert.equal(turn.threadId, threadId);
+      yield* adapter.stopSession(threadId);
+    }),
+  );
+
+  it.effect(
+    "fails a native OMP error behind ACP end_turn and clears it before the next prompt",
+    () =>
+      Effect.gen(function* () {
+        const adapter = yield* OmpAdapter;
+        const serverSettings = yield* ServerSettingsService;
+        const wrapperPath = yield* Effect.promise(() =>
+          makeMockAgentWrapper({ T3_ACP_OMP_OUTCOME: "error" }),
+        );
+        yield* serverSettings.updateSettings({
+          providers: { omp: { binaryPath: wrapperPath, enabled: true } },
+        });
+        const threadId = ThreadId.make("omp-native-error-outcome");
+        yield* adapter.startSession({
+          threadId,
+          provider: ProviderDriverKind.make("omp"),
+          cwd: process.cwd(),
+          runtimeMode: "full-access",
+        });
+        const firstEvents = yield* adapter.streamEvents.pipe(
+          Stream.takeUntil((event) => event.type === "turn.completed"),
+          Stream.runCollect,
+          Effect.forkChild,
+        );
+        const failed = yield* adapter
+          .sendTurn({ threadId, input: "Work on the task" })
+          .pipe(Effect.result);
+        const events = Array.from(yield* Fiber.join(firstEvents));
+        const completion = events.find((event) => event.type === "turn.completed");
+        assert.equal(completion?.payload.state, "failed");
+        assert.match(completion?.payload.errorMessage ?? "", /The operation was aborted/);
+        assert.equal(failed._tag, "Failure");
+        assert.equal(
+          events
+            .filter((event) => event.type === "content.delta")
+            .map((event) => event.payload.delta)
+            .join(""),
+          "Partial work retained.",
+        );
+        const ready = (yield* adapter.listSessions()).find(
+          (session) => session.threadId === threadId,
+        );
+        assert.equal(ready?.status, "ready");
+        assert.equal(ready?.activeTurnId, undefined);
+
+        const nextEvents = yield* adapter.streamEvents.pipe(
+          Stream.takeUntil((event) => event.type === "turn.completed"),
+          Stream.runCollect,
+          Effect.forkChild,
+        );
+        // The fixture's successful second answer quotes the exact same error text.
+        yield* adapter.sendTurn({ threadId, input: "Explain that error" });
+        const next = Array.from(yield* Fiber.join(nextEvents));
+        const nextCompletion = next.find((event) => event.type === "turn.completed");
+        assert.equal(nextCompletion?.payload.state, "completed");
+        assert.equal(nextCompletion?.payload.errorMessage, undefined);
+        yield* adapter.stopSession(threadId);
+      }),
+  );
+
+  it.effect.each([
+    ["retry", "completed"],
+    ["aborted", "cancelled"],
+    ["unavailable", "completed"],
+  ] as const)("preserves native %s settlement as %s", ([outcome, state]) =>
+    Effect.gen(function* () {
+      const adapter = yield* OmpAdapter;
+      const serverSettings = yield* ServerSettingsService;
+      const wrapperPath = yield* Effect.promise(() =>
+        makeMockAgentWrapper({ T3_ACP_OMP_OUTCOME: outcome }),
+      );
+      yield* serverSettings.updateSettings({
+        providers: { omp: { binaryPath: wrapperPath, enabled: true } },
+      });
+      const threadId = ThreadId.make(`omp-native-${outcome}-outcome`);
+      yield* adapter.startSession({
+        threadId,
+        provider: ProviderDriverKind.make("omp"),
+        cwd: process.cwd(),
+        runtimeMode: "full-access",
+      });
+      const eventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.takeUntil((event) => event.type === "turn.completed"),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      yield* adapter.sendTurn({ threadId, input: "Run the task" });
+      const events = Array.from(yield* Fiber.join(eventsFiber));
+      const completion = events.find((event) => event.type === "turn.completed");
+      assert.equal(completion?.payload.state, state);
+      assert.equal(completion?.payload.errorMessage, undefined);
       yield* adapter.stopSession(threadId);
     }),
   );

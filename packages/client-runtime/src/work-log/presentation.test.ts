@@ -5,6 +5,7 @@ import { ThreadId } from "@t3tools/contracts";
 import {
   commandDetailRepeatsCommand,
   extractCommandOutputText,
+  liveActivityToolStatus,
   resolveViewedImageAsset,
   resolveWorkEntryToolPresentation,
   summarizeToolGroup,
@@ -16,6 +17,48 @@ import {
   workEntryDisplayIndicatesToolFailure,
   workEntryIndicatesToolSuccess,
 } from "./presentation.js";
+
+describe("reported activity lifecycle", () => {
+  it("never turns explicit completion back into running while the provider remains busy", () => {
+    expect(liveActivityToolStatus("completed", true)).toBe("completed");
+    expect(liveActivityToolStatus("inProgress", true)).toBe("inProgress");
+  });
+  it("does not claim domain-neutral ACP searches happened on the web", () => {
+    const summary = summarizeToolGroup([
+      {
+        label: "Locating current workspace calls",
+        tone: "tool",
+        itemType: "web_search",
+        toolData: { kind: "search", rawInput: { pattern: "openPanel", path: "apps/web/src" } },
+      },
+    ]);
+    expect(summary).not.toMatch(/web/i);
+    expect(summary).not.toMatch(/browser/i);
+  });
+  it("keeps confirmed web searches distinct from ACP lookups in mixed groups", () => {
+    const web: WorkLogPresentationEntry = {
+      label: "Search",
+      tone: "tool",
+      itemType: "web_search",
+    };
+    const lookup: WorkLogPresentationEntry = {
+      ...web,
+      label: "Locate workspace references",
+      toolData: { kind: "search" },
+    };
+    const fetch: WorkLogPresentationEntry = {
+      ...web,
+      label: "Retrieve source information",
+      toolData: { kind: "fetch" },
+    };
+    expect(summarizeToolGroup([web, lookup, web, fetch])).toBe(
+      "Searched the web 2 times and looked up information 2 times",
+    );
+    expect(summarizeToolGroup([lookup, web, fetch])).toBe(
+      "Looked up information 2 times and searched the web 1 time",
+    );
+  });
+});
 
 describe("workEntryIndicatesToolFailure", () => {
   const base = {

@@ -164,9 +164,15 @@ function resolveT3McpToolPresentation(
   };
 }
 
-/** Latest live activity stays present-tense unless the call itself failed, declined, or stopped. */
+/** Explicit terminal status wins over a still-running parent turn. */
 export function liveActivityToolStatus(status: string | undefined, presentTense: boolean) {
-  if (status === "failed" || status === "declined" || status === "stopped") return status;
+  if (
+    status === "completed" ||
+    status === "failed" ||
+    status === "declined" ||
+    status === "stopped"
+  )
+    return status;
   if (presentTense || status === "inProgress") return "inProgress";
   return "completed";
 }
@@ -524,8 +530,10 @@ export function resolveViewedImageAsset(
   return { resource: media.resource, alt: media.name, srcFragment: media.srcFragment };
 }
 
+type ToolGroupSummaryAction = ToolGroupAction | "lookup";
+
 function toolGroupActionCount(
-  action: ToolGroupAction,
+  action: ToolGroupSummaryAction,
   entries: ReadonlyArray<WorkLogPresentationEntry>,
 ): number {
   if (action !== "edit") return entries.length;
@@ -542,7 +550,11 @@ function toolGroupActionCount(
   return changedFiles.size + editsWithoutFileDetails;
 }
 
-function toolGroupActionLabel(action: ToolGroupAction, count: number): string {
+function toolGroupActionLabel(
+  action: ToolGroupSummaryAction,
+  entries: ReadonlyArray<WorkLogPresentationEntry>,
+): string {
+  const count = toolGroupActionCount(action, entries);
   switch (action) {
     case "link-pr":
       return `Linked ${count} ${count === 1 ? "pull request" : "pull requests"}`;
@@ -562,6 +574,8 @@ function toolGroupActionLabel(action: ToolGroupAction, count: number): string {
       return `Used browser ${count} ${count === 1 ? "time" : "times"}`;
     case "search":
       return `Searched the web ${count} ${count === 1 ? "time" : "times"}`;
+    case "lookup":
+      return `Looked up information ${count} ${count === 1 ? "time" : "times"}`;
     case "code-search":
       return `Searched code ${count} ${count === 1 ? "time" : "times"}`;
     case "other":
@@ -574,19 +588,23 @@ function toolGroupActionLabel(action: ToolGroupAction, count: number): string {
 export function summarizeToolGroup(entries: ReadonlyArray<WorkLogPresentationEntry>): string {
   const summaryEntries = omitSupersededLifecycleMarkers(entries, (entry) => entry);
   const sources = new Map<string, ToolActivitySource>();
-  const groupedEntries = new Map<ToolGroupAction, WorkLogPresentationEntry[]>();
+  const groupedEntries = new Map<ToolGroupSummaryAction, WorkLogPresentationEntry[]>();
   for (const entry of summaryEntries) {
     if (entry.toolSource && resolveWorkEntryToolPresentation(entry)?.icon !== "pull-request") {
       sources.set(entry.toolSource.key, entry.toolSource);
       continue;
     }
     const action = toolGroupAction(entry);
-    const group = groupedEntries.get(action);
+    // Keep ACP's domain-neutral lookups separate from confirmed web searches.
+    const kind = asRecord(entry.toolData)?.kind;
+    const groupKey =
+      action === "search" && (kind === "search" || kind === "fetch") ? "lookup" : action;
+    const group = groupedEntries.get(groupKey);
     if (group) group.push(entry);
-    else groupedEntries.set(action, [entry]);
+    else groupedEntries.set(groupKey, [entry]);
   }
   const labels = [...groupedEntries].map(([action, actionEntries]) =>
-    toolGroupActionLabel(action, toolGroupActionCount(action, actionEntries)),
+    toolGroupActionLabel(action, actionEntries),
   );
   if (sources.size > 0) {
     const sourceValues = [...sources.values()];
