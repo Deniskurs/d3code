@@ -14,6 +14,7 @@ import {
 import { useMediaQuery } from "./hooks/useMediaQuery";
 
 export const PANEL_MOTION_EASING = "cubic-bezier(0.22, 1, 0.36, 1)";
+export const WORKSPACE_MOTION_EASING = "cubic-bezier(0, 0, 0.58, 1)";
 
 function isDocumentVisible(): boolean {
   return typeof document === "undefined" || !document.hidden;
@@ -107,6 +108,7 @@ export function observeResponsiveBreakpointFade(options: {
 export function usePanelAnimationSettings(): {
   active: boolean;
   durationMs: PanelAnimationDurationMs;
+  navigationSuppressed: boolean;
 } {
   const durationMs = useContext(PanelAnimationDurationContext);
   const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
@@ -116,7 +118,11 @@ export function usePanelAnimationSettings(): {
     () => true,
   );
   const suppressed = useContext(PanelAnimationSuppressionContext);
-  return { active: durationMs > 0 && !prefersReducedMotion && !suppressed && visible, durationMs };
+  return {
+    active: durationMs > 0 && !prefersReducedMotion && !suppressed && visible,
+    durationMs,
+    navigationSuppressed: suppressed,
+  };
 }
 
 /** Keeps closing panel content mounted only for its exit transition. */

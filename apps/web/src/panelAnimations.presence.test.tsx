@@ -41,7 +41,8 @@ async function advance(milliseconds: number) {
 }
 
 beforeEach(() => {
-  vi.useFakeTimers();
+  // Keep React's scheduler tasks real so act() can flush while exit timers are controlled.
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   hidden = false;
   preferences.duration = 250;

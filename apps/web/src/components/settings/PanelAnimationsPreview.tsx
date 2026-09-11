@@ -1,25 +1,35 @@
-import { type CSSProperties, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { cn } from "~/lib/utils";
+import { usePanelAnimationSettings } from "~/panelAnimations";
+import { settleWorkspaceLayout } from "../workspaceLayoutMotion";
 
 export function PanelAnimationsPreview({ durationMs }: { durationMs: number }) {
   const [panelsOpen, setPanelsOpen] = useState(true);
-  const transitionClass =
-    "transition-[width,height,border-width] [transition-duration:var(--preview-duration)] ease-out motion-reduce:transition-none";
+  const { active } = usePanelAnimationSettings();
+  const cancelMotionRef = useRef<(() => void) | undefined>(undefined);
+  useEffect(() => {
+    if (!active || durationMs === 0) cancelMotionRef.current?.();
+    return () => cancelMotionRef.current?.();
+  }, [active, durationMs]);
 
   return (
     <button
       type="button"
       aria-label="Replay panel animation preview"
       className="flex h-10 w-full cursor-pointer overflow-hidden rounded-lg border border-border bg-background p-1 shadow-xs/5 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
-      onClick={() => setPanelsOpen((open) => !open)}
-      style={{ "--preview-duration": `${durationMs}ms` } as CSSProperties}
+      onClick={(event) => {
+        setPanelsOpen((open) => !open);
+        cancelMotionRef.current?.();
+        cancelMotionRef.current = active
+          ? settleWorkspaceLayout(event.currentTarget, durationMs)
+          : undefined;
+      }}
     >
       <span
         aria-hidden
         className={cn(
           "h-full shrink-0 overflow-hidden rounded-md bg-sidebar",
-          transitionClass,
           panelsOpen ? "w-4" : "w-0",
         )}
       />
@@ -32,7 +42,6 @@ export function PanelAnimationsPreview({ durationMs }: { durationMs: number }) {
         <span
           className={cn(
             "flex shrink-0 items-center overflow-hidden bg-foreground/5 px-2",
-            transitionClass,
             panelsOpen ? "h-2 border-t border-border/70" : "h-0 border-t-0",
           )}
         >
@@ -43,7 +52,6 @@ export function PanelAnimationsPreview({ durationMs }: { durationMs: number }) {
         aria-hidden
         className={cn(
           "h-full shrink-0 overflow-hidden rounded-md bg-muted",
-          transitionClass,
           panelsOpen ? "w-5" : "w-0",
         )}
       />

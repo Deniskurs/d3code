@@ -19,9 +19,7 @@ On web and desktop, **Panel animations** defaults to 250 ms. Adjust the slider u
 **Settings → Appearance → Motion** from 0 to 400 ms; choose 0 ms to disable motion. Existing saved
 preferences are kept, and reduced motion in your operating system disables these transitions.
 
-The selected duration applies to opening and closing panels, tab content, menus, and Settings
-transitions. Moving between threads restores the selected thread's panel state without replaying
-its opening and closing motion.
+Moving between threads restores the selected thread's panel state without replaying its motion.
 
 ## Custom themes
 

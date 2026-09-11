@@ -278,7 +278,7 @@ function Sidebar({
         data-state={state}
         data-variant={variant}
       >
-        {/* This is what handles the sidebar gap on desktop */}
+        {/* Gap and painted geometry commit together; only overlay sheets slide. */}
         <div
           className={cn(
             "relative w-(--sidebar-width) bg-transparent",
@@ -293,7 +293,6 @@ function Sidebar({
         <div
           className={cn(
             "fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) md:flex",
-            "motion-safe:transition-transform motion-safe:[transition-duration:var(--panel-animation-duration,0ms)] motion-safe:[transition-timing-function:var(--panel-animation-easing,ease-out)] group-data-[state=collapsed]:[transition-duration:var(--panel-animation-exit-duration,0ms)]",
             side === "left"
               ? "left-0 group-data-[collapsible=offcanvas]:-translate-x-full"
               : "right-0 group-data-[collapsible=offcanvas]:translate-x-full",
@@ -374,7 +373,6 @@ function SidebarRail({
     side: "left" | "right";
     startWidth: number;
     startX: number;
-    transitionTargets: HTMLElement[];
     width: number;
     wrapper: HTMLElement;
   } | null>(null);
@@ -392,9 +390,6 @@ function SidebarRail({
       if (resizeState.rafId !== null) {
         window.cancelAnimationFrame(resizeState.rafId);
       }
-      resizeState.transitionTargets.forEach((element) => {
-        element.style.removeProperty("transition-duration");
-      });
       if (resolvedResizable?.storageKey && typeof window !== "undefined") {
         setLocalStorageItem(resolvedResizable.storageKey, resizeState.width, Schema.Finite);
       }
@@ -430,13 +425,6 @@ function SidebarRail({
 
       const startWidth = sidebarContainer.getBoundingClientRect().width;
       const initialWidth = clampSidebarWidth(startWidth, resolvedResizable);
-      const transitionTargets = [
-        sidebarRoot.querySelector<HTMLElement>("[data-slot='sidebar-gap']"),
-        sidebarRoot.querySelector<HTMLElement>("[data-slot='sidebar-container']"),
-      ].filter((element): element is HTMLElement => element !== null);
-      transitionTargets.forEach((element) => {
-        element.style.setProperty("transition-duration", "0ms");
-      });
 
       event.preventDefault();
       event.stopPropagation();
@@ -450,7 +438,6 @@ function SidebarRail({
         side: sidebarInstance?.side ?? "left",
         startWidth: initialWidth,
         startX: event.clientX,
-        transitionTargets,
         width: initialWidth,
         wrapper,
       };
@@ -587,9 +574,6 @@ function SidebarRail({
       if (resizeState?.rafId != null) {
         window.cancelAnimationFrame(resizeState.rafId);
       }
-      resizeState?.transitionTargets.forEach((element) => {
-        element.style.removeProperty("transition-duration");
-      });
       document.body.style.removeProperty("cursor");
       document.body.style.removeProperty("user-select");
     };

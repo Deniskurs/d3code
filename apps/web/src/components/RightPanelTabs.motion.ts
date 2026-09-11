@@ -1,4 +1,4 @@
-import { PANEL_MOTION_EASING } from "~/panelAnimations";
+import { WORKSPACE_MOTION_EASING } from "~/panelAnimations";
 
 type TabGeometry = { x: number; y: number; width: number; height: number };
 
@@ -30,7 +30,7 @@ export function createRightPanelTabMotion(
   const enabled = () => durationMs > 0 && !document.hidden && !reducedMotion?.matches;
   const animate = (node: HTMLElement, frames: Keyframe[], duration: number) => {
     if (!node.animate) return;
-    const animation = node.animate(frames, { duration, easing: PANEL_MOTION_EASING });
+    const animation = node.animate(frames, { duration, easing: WORKSPACE_MOTION_EASING });
     let released = false;
     const release = () => {
       if (released) return;

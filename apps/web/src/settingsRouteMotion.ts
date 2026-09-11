@@ -1,7 +1,11 @@
 import type { AnyRouter } from "@tanstack/react-router";
 
 import { getClientSettings } from "./hooks/useSettings";
-import { PANEL_MOTION_EASING } from "./panelAnimations";
+import { WORKSPACE_MOTION_EASING } from "./panelAnimations";
+import {
+  cancelWorkspaceLayoutMotion,
+  WORKSPACE_LAYOUT_CHANGE_EVENT,
+} from "./components/workspaceLayoutMotion";
 import "./settingsRouteMotion.css";
 
 type RouteChange = {
@@ -57,6 +61,7 @@ export function createSettingsRouteMotion() {
     // a later non-animated navigation can also release an in-flight snapshot.
     router.startViewTransition = (update) => {
       cancel();
+      cancelWorkspaceLayoutMotion();
       if (router.shouldViewTransition !== undefined) {
         originalStart(update);
         return;
@@ -77,20 +82,28 @@ export function createSettingsRouteMotion() {
         "--settings-route-motion-duration",
         `${getClientSettings().panelAnimationDurationMs}ms`,
       );
-      root.style.setProperty("--settings-route-motion-easing", PANEL_MOTION_EASING);
+      root.style.setProperty("--settings-route-motion-easing", WORKSPACE_MOTION_EASING);
+
+      let updated = false;
+      const updateOnce = () => {
+        if (updated) return;
+        updated = true;
+        return update();
+      };
 
       let transition: ViewTransition;
       try {
-        transition = document.startViewTransition({ update, types });
+        transition = document.startViewTransition({ update: updateOnce, types });
       } catch {
         root.style.removeProperty("--settings-route-motion-duration");
         root.style.removeProperty("--settings-route-motion-easing");
-        void update();
+        void updateOnce();
         return;
       }
       const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
       const cleanup = () => {
         document.removeEventListener("visibilitychange", onVisibilityChange);
+        document.removeEventListener(WORKSPACE_LAYOUT_CHANGE_EVENT, stop);
         window.removeEventListener("pagehide", stop);
         reducedMotion.removeEventListener("change", onReducedMotionChange);
         if (cancelActive === stop) {
@@ -111,6 +124,7 @@ export function createSettingsRouteMotion() {
       };
       cancelActive = stop;
       document.addEventListener("visibilitychange", onVisibilityChange);
+      document.addEventListener(WORKSPACE_LAYOUT_CHANGE_EVENT, stop);
       window.addEventListener("pagehide", stop);
       reducedMotion.addEventListener("change", onReducedMotionChange);
       // Supersession and hidden documents reject ready; a failed route commit

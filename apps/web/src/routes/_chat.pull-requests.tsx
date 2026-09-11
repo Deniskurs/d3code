@@ -125,7 +125,7 @@ import { useLiveRefresh } from "../hooks/useLiveRefresh";
 import { useOpenPanelPullRequestUrl } from "../hooks/useOpenPanelPullRequestUrl";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
 import { toastManager } from "../components/ui/toast";
-import { usePanelAnimationSettings, usePanelPresence } from "../panelAnimations";
+import { useWorkspaceLayoutMotion } from "../components/workspaceLayoutMotion";
 import {
   PULL_REQUESTS_PANEL_REF,
   pullRequestSurfaceId,
@@ -438,25 +438,14 @@ function PullRequestsRouteView() {
   const selectedPullRequestSurface =
     selectedRightPanelSurface?.kind === "pull-request" ? selectedRightPanelSurface : null;
   const activePullRequestSurface = rightPanelState.isOpen ? selectedPullRequestSurface : null;
-  const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
-    usePanelAnimationSettings();
-  const rightPanelPresenceValue = useMemo(
-    () => ({
-      activeSurface: selectedPullRequestSurface,
-      surfaces: rightPanelState.surfaces,
-    }),
-    [rightPanelState.surfaces, selectedPullRequestSurface],
-  );
-  const rightPanelPresence = usePanelPresence(
-    rightPanelState.isOpen && selectedPullRequestSurface !== null,
-    rightPanelPresenceValue,
-    panelAnimationsActive,
-    rightPanelRef?.threadId ?? null,
-    panelAnimationDurationMs,
-  );
-  const rightPanelPresent = rightPanelPresence.present;
-  const renderedPullRequestSurface = rightPanelPresence.value?.activeSurface ?? null;
-  const renderedRightPanelSurfaces = rightPanelPresence.value?.surfaces ?? [];
+  const rightPanelPresent = activePullRequestSurface !== null;
+  const renderedPullRequestSurface = activePullRequestSurface;
+  const renderedRightPanelSurfaces = rightPanelState.surfaces;
+  const workspaceMotionRef = useWorkspaceLayoutMotion({
+    open: rightPanelPresent,
+    surface: "right-panel",
+    scopeKey: "pull-requests",
+  });
   // The open tab names its own server; a link that arrived before any tab was opened names it
   // through the project it selected.
   const panelEnvironmentId =
@@ -1920,7 +1909,7 @@ function PullRequestsRouteView() {
 
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
-      <div className="relative flex min-h-0 flex-1">
+      <div ref={workspaceMotionRef} className="relative flex min-h-0 flex-1">
         {pullRequestsSupported && rightPanelPresent ? openPanelControls : null}
         <PullRequestsColumn {...columnProps} />
 

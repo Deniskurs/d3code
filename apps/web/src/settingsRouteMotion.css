@@ -1,99 +1,45 @@
 :root:active-view-transition-type(settings-enter),
 :root:active-view-transition-type(settings-exit),
 :root:active-view-transition-type(settings-section) {
+  view-transition-name: none;
+
+  .settings-route-content {
+    view-transition-name: settings-content;
+  }
+
   &::view-transition {
     pointer-events: none;
   }
 
-  &::view-transition-group(*),
-  &::view-transition-old(*),
-  &::view-transition-new(*) {
-    pointer-events: none;
-    animation-duration: var(--settings-route-motion-duration);
-    animation-timing-function: var(--settings-route-motion-easing);
-  }
-}
-
-:root:active-view-transition-type(settings-enter) {
-  &::view-transition-old(root) {
-    animation-name: settings-route-recede;
-  }
-
-  &::view-transition-new(root) {
-    animation-name: settings-route-enter;
-  }
-}
-
-:root:active-view-transition-type(settings-exit) {
-  &::view-transition-old(root) {
-    animation-name: settings-route-exit;
-  }
-
-  &::view-transition-new(root) {
-    animation-name: settings-route-return;
-  }
-}
-
-:root:active-view-transition-type(settings-section) {
-  .settings-route-content {
-    view-transition-name: settings-section;
-  }
-
-  &::view-transition-group(root),
-  &::view-transition-old(root),
-  &::view-transition-new(root) {
+  &::view-transition-group(settings-content) {
     animation: none;
   }
 
-  &::view-transition-old(root) {
-    display: none;
+  &::view-transition-old(settings-content),
+  &::view-transition-new(settings-content) {
+    pointer-events: none;
+    animation-duration: var(--settings-route-motion-duration);
+    animation-timing-function: var(--settings-route-motion-easing);
+    animation-fill-mode: both;
+    mix-blend-mode: normal;
   }
 
-  &::view-transition-old(settings-section) {
-    animation-name: settings-section-out;
+  &::view-transition-old(settings-content) {
+    animation-name: settings-content-out;
   }
 
-  &::view-transition-new(settings-section) {
-    animation-name: settings-section-in;
+  &::view-transition-new(settings-content) {
+    animation-name: settings-content-in;
   }
 }
 
-@keyframes settings-route-enter {
+@keyframes settings-content-in {
   from {
     opacity: 0;
-    transform: translateX(12px);
   }
 }
 
-@keyframes settings-route-recede {
-  to {
-    opacity: 0;
-    transform: translateX(-6px);
-  }
-}
-
-@keyframes settings-route-exit {
-  to {
-    opacity: 0;
-    transform: translateX(12px);
-  }
-}
-
-@keyframes settings-route-return {
-  from {
-    opacity: 0;
-    transform: translateX(-6px);
-  }
-}
-
-@keyframes settings-section-in {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-}
-
-@keyframes settings-section-out {
+@keyframes settings-content-out {
   to {
     opacity: 0;
   }
@@ -103,9 +49,8 @@
   :root:active-view-transition-type(settings-enter),
   :root:active-view-transition-type(settings-exit),
   :root:active-view-transition-type(settings-section) {
-    &::view-transition-group(*),
-    &::view-transition-old(*),
-    &::view-transition-new(*) {
+    &::view-transition-old(settings-content),
+    &::view-transition-new(settings-content) {
       animation: none;
     }
   }

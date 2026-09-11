@@ -253,6 +253,7 @@ import {
 } from "../hooks/useSettings";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { usePanelAnimationSettings, usePanelPresence } from "../panelAnimations";
+import { useWorkspaceLayoutMotion } from "./workspaceLayoutMotion";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
 import { useOpenPanelPullRequestUrl } from "../hooks/useOpenPanelPullRequestUrl";
 import { useThreadActions } from "../hooks/useThreadActions";
@@ -1944,7 +1945,7 @@ export default function ChatView(props: ChatViewProps) {
   const rightPanelPresence = usePanelPresence(
     rightPanelOpen && activeThreadRef !== null,
     rightPanelPresenceValue,
-    panelAnimationsActive,
+    panelAnimationsActive && shouldUseRightPanelSheet,
     activeThreadKey,
     panelAnimationDurationMs,
   );
@@ -1961,6 +1962,13 @@ export default function ChatView(props: ChatViewProps) {
   const rightPanelMaximized =
     canMaximizeRightPanel && maximizedRightPanelThreadKey === routeThreadKey;
   const inlineRightPanelOwnsTitleBar = rightPanelOpen && !shouldUseRightPanelSheet;
+  const workspaceMotionRef = useWorkspaceLayoutMotion({
+    open: !shouldUseRightPanelSheet && rightPanelOpen,
+    maximized: rightPanelMaximized,
+    surface: "right-panel",
+    enabled: !previewPanelOpen && !previewMiniPlayerVisible,
+    scopeKey: routeThreadKey,
+  });
 
   useEffect(() => {
     if (!activeThreadRef) return;
@@ -8293,7 +8301,10 @@ export default function ChatView(props: ChatViewProps) {
   });
 
   return (
-    <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background">
+    <div
+      ref={workspaceMotionRef}
+      className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background"
+    >
       {rightPanelControlsAtRoot ? panelLayoutControls : null}
       <div
         className={cn(

@@ -62,7 +62,7 @@ function createRuntime({ typesSupported = true, nativeSupported = true } = {}) {
       matchMedia: () => media,
     }),
   );
-  return { document, media, properties, transitions, startViewTransition };
+  return { document, window: windowEvents, media, properties, transitions, startViewTransition };
 }
 
 function attachMotion() {
@@ -166,6 +166,30 @@ describe("Settings route motion eligibility", () => {
 });
 
 describe("Settings route motion lifetime", () => {
+  it("keeps motion styles through ready and releases them only after finished", async () => {
+    const runtime = createRuntime();
+    const { router, dispose } = attachMotion();
+    router.startViewTransition(async () => undefined);
+    const transition = runtime.transitions[0]!;
+    const duration = runtime.properties.get("--settings-route-motion-duration");
+    const easing = runtime.properties.get("--settings-route-motion-easing");
+    expect(duration).toBe("250ms");
+    expect(easing).toBeDefined();
+
+    transition.ready.resolve();
+    await Promise.resolve();
+    expect(runtime.properties.get("--settings-route-motion-duration")).toBe(duration);
+    expect(runtime.properties.get("--settings-route-motion-easing")).toBe(easing);
+    expect(transition.skipTransition).not.toHaveBeenCalled();
+
+    transition.finished.resolve();
+    await Promise.resolve();
+    expect(runtime.properties.size).toBe(0);
+    runtime.window.dispatchEvent(new Event("pagehide"));
+    dispose();
+    expect(transition.skipTransition).not.toHaveBeenCalled();
+  });
+
   it("releases the old snapshot as soon as another navigation starts, even without new motion", async () => {
     const runtime = createRuntime();
     const { router, beforeLoad, dispose } = attachMotion();
@@ -199,7 +223,7 @@ describe("Settings route motion lifetime", () => {
     dispose();
   });
 
-  it.each(["hidden", "reduced", "dispose"])(
+  it.each(["hidden", "reduced", "pagehide", "layout", "dispose"])(
     "cancels and releases listeners on %s",
     async (reason) => {
       const runtime = createRuntime();
@@ -211,6 +235,10 @@ describe("Settings route motion lifetime", () => {
       } else if (reason === "reduced") {
         runtime.media.matches = true;
         runtime.media.dispatchEvent(new Event("change"));
+      } else if (reason === "pagehide") {
+        runtime.window.dispatchEvent(new Event("pagehide"));
+      } else if (reason === "layout") {
+        runtime.document.dispatchEvent(new Event("t3:workspace-layout-change"));
       } else {
         dispose();
         expect(unsubscribe).toHaveBeenCalledOnce();
@@ -218,6 +246,8 @@ describe("Settings route motion lifetime", () => {
       await Promise.resolve();
       runtime.document.dispatchEvent(new Event("visibilitychange"));
       runtime.media.dispatchEvent(new Event("change"));
+      runtime.window.dispatchEvent(new Event("pagehide"));
+      runtime.document.dispatchEvent(new Event("t3:workspace-layout-change"));
       expect(runtime.transitions[0]?.skipTransition).toHaveBeenCalledOnce();
       expect(runtime.properties.size).toBe(0);
       if (reason !== "dispose") dispose();
@@ -235,6 +265,20 @@ describe("Settings route motion lifetime", () => {
       visibleRoute = router.latestLocation.pathname;
     });
     expect(visibleRoute).toBe("/settings/general");
+    expect(runtime.properties.size).toBe(0);
+    dispose();
+  });
+
+  it("does not repeat the route commit if native startup invokes update before throwing", () => {
+    const runtime = createRuntime();
+    const { router, dispose } = attachMotion();
+    const update = vi.fn(async () => undefined);
+    runtime.startViewTransition.mockImplementationOnce(({ update }) => {
+      void update();
+      throw new DOMException("Document is no longer active", "InvalidStateError");
+    });
+    router.startViewTransition(update);
+    expect(update).toHaveBeenCalledOnce();
     expect(runtime.properties.size).toBe(0);
     dispose();
   });
