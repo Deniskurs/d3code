@@ -191,7 +191,7 @@ describe("Settings route motion lifetime", () => {
     router.latestLocation.pathname = "/chat";
     router.startViewTransition(async () => undefined);
     await Promise.resolve();
-    expect(runtime.properties.get("--settings-route-motion-duration")).toBe("180ms");
+    expect(runtime.properties.get("--settings-route-motion-duration")).toBe("250ms");
     runtime.transitions[1]?.ready.resolve();
     runtime.transitions[1]?.finished.resolve();
     await Promise.resolve();

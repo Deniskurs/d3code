@@ -61,19 +61,27 @@ afterEach(async () => {
 });
 
 describe("panel motion lifetime", () => {
-  it("does no timed work while closed and releases retained content at the shorter exit", async () => {
+  it("retains closing content for the selected duration and leaves no timed work afterward", async () => {
     await render(false);
     expect(container.querySelector("input")).toBeNull();
     expect(vi.getTimerCount()).toBe(0);
     await render(true);
     await render(false);
     expect(container.querySelector("input")?.value).toBe("first");
-    await advance(179);
+    await advance(249);
     expect(container.querySelector("input")).not.toBeNull();
     await advance(1);
     expect(container.querySelector("input")).toBeNull();
     expect(vi.getTimerCount()).toBe(0);
     await advance(1_000);
+    expect(vi.getTimerCount()).toBe(0);
+    preferences.duration = 400;
+    await render(true);
+    await render(false);
+    await advance(399);
+    expect(container.querySelector("input")).not.toBeNull();
+    await advance(1);
+    expect(container.querySelector("input")).toBeNull();
     expect(vi.getTimerCount()).toBe(0);
   });
 

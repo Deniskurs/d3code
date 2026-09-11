@@ -1,4 +1,4 @@
-import { getPanelMotionDuration, PANEL_MOTION_EASING } from "~/panelAnimations";
+import { PANEL_MOTION_EASING } from "~/panelAnimations";
 
 type TabGeometry = { x: number; y: number; width: number; height: number };
 
@@ -98,7 +98,7 @@ export function createRightPanelTabMotion(
           },
           { transform },
         ],
-        getPanelMotionDuration(durationMs, "enter"),
+        durationMs,
       );
     }
   }
@@ -124,11 +124,7 @@ export function createRightPanelTabMotion(
       cancel(content);
       // Electron webContents live outside this DOM: animate their tab chrome only.
       if (nativeContent || !enabled()) return;
-      animate(
-        content,
-        [{ opacity: opacity ?? "0.86" }, { opacity: 1 }],
-        getPanelMotionDuration(durationMs, "content"),
-      );
+      animate(content, [{ opacity: opacity ?? "0.86" }, { opacity: 1 }], durationMs);
     },
     dispose() {
       disposed = true;

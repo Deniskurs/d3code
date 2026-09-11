@@ -6,11 +6,7 @@ import type { CSSProperties } from "react";
 import { cn } from "~/lib/utils";
 import { Button } from "~/components/ui/button";
 import { ScrollArea } from "~/components/ui/scroll-area";
-import {
-  getPanelMotionDuration,
-  PANEL_MOTION_EASING,
-  usePanelAnimationSettings,
-} from "~/panelAnimations";
+import { PANEL_MOTION_EASING, usePanelAnimationSettings } from "~/panelAnimations";
 
 const Sheet = SheetPrimitive.Root;
 
@@ -29,7 +25,7 @@ function SheetBackdrop({ className, style, ...props }: SheetPrimitive.Backdrop.P
   const motionDurationMs = active ? durationMs : 0;
   const motionStyle = {
     "--sheet-motion-duration": `${motionDurationMs}ms`,
-    "--sheet-motion-exit-duration": `${getPanelMotionDuration(motionDurationMs, "exit")}ms`,
+    "--sheet-motion-exit-duration": `${motionDurationMs}ms`,
     "--sheet-motion-easing": PANEL_MOTION_EASING,
   } as CSSProperties;
 
@@ -104,7 +100,7 @@ function SheetPopup({
   const motionDurationMs = active ? (transitionDurationMs ?? durationMs) : 0;
   const transitionStyle = {
     "--sheet-motion-duration": `${motionDurationMs}ms`,
-    "--sheet-motion-exit-duration": `${getPanelMotionDuration(motionDurationMs, "exit")}ms`,
+    "--sheet-motion-exit-duration": `${motionDurationMs}ms`,
     "--sheet-motion-easing": PANEL_MOTION_EASING,
   } as CSSProperties;
   const instant = motionDurationMs === 0;

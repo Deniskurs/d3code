@@ -5,11 +5,7 @@ import { CheckIcon, ChevronRightIcon } from "lucide-react";
 import type * as React from "react";
 
 import { cn } from "~/lib/utils";
-import {
-  getPanelMotionDuration,
-  PANEL_MOTION_EASING,
-  usePanelAnimationSettings,
-} from "~/panelAnimations";
+import { PANEL_MOTION_EASING, usePanelAnimationSettings } from "~/panelAnimations";
 
 const MenuCreateHandle = MenuPrimitive.createHandle;
 
@@ -43,10 +39,10 @@ function MenuPopup({
   anchor?: MenuPrimitive.Positioner.Props["anchor"];
 }) {
   const { active, durationMs } = usePanelAnimationSettings();
-  const contentDurationMs = getPanelMotionDuration(active ? durationMs : 0, "content");
+  const contentDurationMs = active ? durationMs : 0;
   const motionStyle = {
     "--popup-motion-duration": `${contentDurationMs}ms`,
-    "--popup-motion-exit-duration": `${getPanelMotionDuration(contentDurationMs, "exit")}ms`,
+    "--popup-motion-exit-duration": `${contentDurationMs}ms`,
     "--popup-motion-easing": PANEL_MOTION_EASING,
   } as React.CSSProperties;
   const hasExplicitWidthClass =

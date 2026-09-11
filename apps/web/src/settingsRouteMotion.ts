@@ -1,7 +1,7 @@
 import type { AnyRouter } from "@tanstack/react-router";
 
 import { getClientSettings } from "./hooks/useSettings";
-import { getPanelMotionDuration, PANEL_MOTION_EASING } from "./panelAnimations";
+import { PANEL_MOTION_EASING } from "./panelAnimations";
 import "./settingsRouteMotion.css";
 
 type RouteChange = {
@@ -73,11 +73,9 @@ export function createSettingsRouteMotion() {
       }
 
       const root = document.documentElement;
-      const phase =
-        types[0] === "settings-enter" ? "enter" : types[0] === "settings-exit" ? "exit" : "content";
       root.style.setProperty(
         "--settings-route-motion-duration",
-        `${getPanelMotionDuration(getClientSettings().panelAnimationDurationMs, phase)}ms`,
+        `${getClientSettings().panelAnimationDurationMs}ms`,
       );
       root.style.setProperty("--settings-route-motion-easing", PANEL_MOTION_EASING);
 

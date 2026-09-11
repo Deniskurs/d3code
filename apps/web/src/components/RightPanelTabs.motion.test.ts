@@ -4,7 +4,10 @@ import { createRightPanelTabMotion } from "./RightPanelTabs.motion";
 
 class TestAnimation extends EventTarget {
   cancel = vi.fn(() => this.dispatchEvent(new Event("cancel")));
-  constructor(readonly frames: Keyframe[]) {
+  constructor(
+    readonly frames: Keyframe[],
+    readonly timing: KeyframeAnimationOptions,
+  ) {
     super();
   }
   finish() {
@@ -34,15 +37,15 @@ function fixture() {
   const indicator = {
     style: {} as Record<string, string>,
     getBoundingClientRect: () => ({ left: 10, top: 0, width: 80, height: 24 }),
-    animate(frames: Keyframe[]) {
-      const animation = new TestAnimation(frames);
+    animate(frames: Keyframe[], timing: KeyframeAnimationOptions) {
+      const animation = new TestAnimation(frames, timing);
       indicatorAnimations.push(animation);
       return animation;
     },
   };
   const content = {
-    animate(frames: Keyframe[]) {
-      const animation = new TestAnimation(frames);
+    animate(frames: Keyframe[], timing: KeyframeAnimationOptions) {
+      const animation = new TestAnimation(frames, timing);
       contentAnimations.push(animation);
       return animation;
     },
@@ -73,6 +76,18 @@ function fixture() {
 }
 
 describe("right panel tab motion", () => {
+  it("uses the selected duration for both indicator and content after preference changes", () => {
+    const f = fixture();
+    f.select("a");
+    f.select("b", 100);
+    expect(f.indicatorAnimations[0]?.timing.duration).toBe(250);
+    expect(f.contentAnimations[0]?.timing.duration).toBe(250);
+    f.select("c", 200, 80, 400);
+    expect(f.indicatorAnimations[1]?.timing.duration).toBe(400);
+    expect(f.contentAnimations[1]?.timing.duration).toBe(400);
+    f.motion.dispose();
+  });
+
   it("retargets rapid selection from the visible background and releases superseded effects", () => {
     const f = fixture();
     f.select("a");

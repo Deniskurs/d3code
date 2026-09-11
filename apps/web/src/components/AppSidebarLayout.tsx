@@ -16,7 +16,6 @@ import { cn, isMacPlatform } from "../lib/utils";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import { useEnvironmentIdentificationMode, useLegacySidebarEnabled } from "../hooks/useSettings";
 import {
-  getPanelMotionDuration,
   PANEL_MOTION_EASING,
   PanelAnimationSuppressionProvider,
   usePanelAnimationSettings,
@@ -177,9 +176,8 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   });
   const sidebarProviderStyle = {
     "--sidebar-width": `${sidebarWidth}px`,
-    "--panel-animation-duration": `${routePanelAnimationsActive ? getPanelMotionDuration(panelAnimationDurationMs, "enter") : 0}ms`,
-    "--panel-animation-exit-duration": `${routePanelAnimationsActive ? getPanelMotionDuration(panelAnimationDurationMs, "exit") : 0}ms`,
-    "--panel-animation-content-duration": `${routePanelAnimationsActive ? getPanelMotionDuration(panelAnimationDurationMs, "content") : 0}ms`,
+    "--panel-animation-duration": `${routePanelAnimationsActive ? panelAnimationDurationMs : 0}ms`,
+    "--panel-animation-exit-duration": `${routePanelAnimationsActive ? panelAnimationDurationMs : 0}ms`,
     "--panel-animation-easing": PANEL_MOTION_EASING,
     ...(isMacosDesktop && !isWindowFullscreen
       ? { "--workspace-controls-left": MACOS_TRAFFIC_LIGHTS_LEFT_INSET }

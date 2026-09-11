@@ -15,14 +15,6 @@ import { useMediaQuery } from "./hooks/useMediaQuery";
 
 export const PANEL_MOTION_EASING = "cubic-bezier(0.22, 1, 0.36, 1)";
 
-export function getPanelMotionDuration(
-  durationMs: number,
-  phase: "enter" | "exit" | "content",
-): number {
-  if (phase === "exit") return Math.round(durationMs * 0.72);
-  return phase === "content" ? Math.min(durationMs, 150) : durationMs;
-}
-
 function isDocumentVisible(): boolean {
   return typeof document === "undefined" || !document.hidden;
 }
@@ -92,7 +84,7 @@ export function observeResponsiveBreakpointFade(options: {
     animation?.cancel();
     if (target.ownerDocument.hidden) return;
     const nextAnimation = target.animate([{ opacity: 0 }, { opacity: 1 }], {
-      duration: Math.min(100, durationMs),
+      duration: durationMs,
       easing: PANEL_MOTION_EASING,
     });
     animation = nextAnimation;
@@ -163,10 +155,7 @@ export function usePanelPresence<T>(
     const unsubscribe = subscribeToDocumentVisibility(() => {
       if (!isDocumentVisible()) setPresent(false);
     });
-    const timeout = window.setTimeout(
-      () => setPresent(false),
-      getPanelMotionDuration(durationMs, "exit"),
-    );
+    const timeout = window.setTimeout(() => setPresent(false), durationMs);
     return () => {
       window.clearTimeout(timeout);
       unsubscribe();
