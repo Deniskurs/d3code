@@ -1,4 +1,4 @@
-import { EnvironmentId } from "@t3tools/contracts";
+import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { act, type ComponentProps, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { create, type ReactTestRenderer } from "react-test-renderer";
@@ -8,6 +8,10 @@ import { getSyntaxHighlighterPromise } from "../lib/syntaxHighlighting";
 import { GitHubIcon } from "./Icons";
 import { Button } from "./ui/button";
 import { setMarkdownTaskChecked } from "./files/filePreviewMode";
+import { FileMarkdownPreview } from "./files/FileMarkdownPreview";
+import { renderMermaidDiagram } from "./mermaidRenderer";
+
+vi.mock("./mermaidRenderer", () => ({ renderMermaidDiagram: vi.fn() }));
 
 vi.mock("@effect/atom-react", () => ({ useAtomValue: () => null }));
 vi.mock("../hooks/useTheme", () => ({ useTheme: () => ({ resolvedTheme: "dark" }) }));
@@ -71,6 +75,48 @@ function codeButton(renderer: ReactTestRenderer, label: string) {
   if (!button) throw new Error(`Missing code button: ${label}`);
   return button.props as ComponentProps<typeof Button>;
 }
+
+describe("sidebar Markdown diagrams", () => {
+  it("renders Mermaid fences while preserving ordinary code and copying diagram source", async () => {
+    const source = "flowchart LR\nA[Ready] --> B[Complete]\n";
+    vi.mocked(renderMermaidDiagram).mockResolvedValue("data:image/svg+xml,sidebar-flowchart");
+    const writeText = vi.fn(async (_text: string) => {});
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    let renderer: ReactTestRenderer | undefined;
+    try {
+      await act(async () => {
+        renderer = create(
+          <FileMarkdownPreview
+            cwd="/tmp/project"
+            relativePath="docs/flow.md"
+            threadRef={{
+              environmentId: EnvironmentId.make("diagram-environment"),
+              threadId: ThreadId.make("diagram-thread"),
+            }}
+            text={`\`\`\`mermaid\n${source}\`\`\`\n\n\`\`\`text\nOrdinary code\n\`\`\``}
+          />,
+        );
+      });
+      expect(renderer!.root.findByType("img").props.src).toBe(
+        "data:image/svg+xml,sidebar-flowchart",
+      );
+      expect(renderer!.root.findByProps({ className: "language-mermaid" }).children.join("")).toBe(
+        source,
+      );
+      expect(renderer!.root.findAllByProps({ className: "chat-markdown-shiki" })).toHaveLength(1);
+      const copy = codeButton(renderer!, "Copy code");
+      await act(async () => {
+        copy.onClick?.({} as Parameters<NonNullable<typeof copy.onClick>>[0]);
+      });
+      expect(writeText).toHaveBeenCalledWith(source);
+    } finally {
+      await act(async () => renderer?.unmount());
+      vi.unstubAllGlobals();
+      vi.mocked(renderMermaidDiagram).mockReset();
+    }
+  });
+});
 
 describe("ChatMarkdown favicon privacy", () => {
   it("suppresses private link images while preserving public links across updates", async () => {

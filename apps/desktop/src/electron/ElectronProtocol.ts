@@ -91,7 +91,10 @@ export function makeDesktopContentSecurityPolicy(input: DesktopProtocolRegistrat
     "style-src 'self' 'unsafe-inline'",
     `font-src 'self' ${input.scheme}: data:`,
     "worker-src 'self' blob:",
-    "frame-src 'self' https://challenges.cloudflare.com",
+    // Sidebar HTML/PDF frames use signed URLs on local or user-selected remote
+    // environments. Keep the host/port dynamic, but restrict frames to assets;
+    // the HTML response and iframe retain their opaque-origin sandbox.
+    "frame-src 'self' http://*:*/api/assets/ https://*:*/api/assets/ https://challenges.cloudflare.com",
     "form-action 'self'",
   ].join("; ");
 }

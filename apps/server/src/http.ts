@@ -238,7 +238,7 @@ export const browserApiCorsLayer = Layer.unwrap(
     // origin — a tailnet name, a LAN IP, a phone. Browser dev normally proxies
     // through Vite and is same-origin (no preflight at all), so this is a
     // safety net for the desktop renderer and any direct-to-backend caller.
-    return HttpRouter.cors({
+    const apiCors = HttpMiddleware.cors({
       ...(devOrigin
         ? {
             allowedOrigins: [devOrigin, ...DESKTOP_RENDERER_ORIGINS, ...config.devAllowedOrigins],
@@ -249,6 +249,24 @@ export const browserApiCorsLayer = Layer.unwrap(
       allowedHeaders: browserApiCorsAllowedHeaders,
       maxAge: 600,
     });
+    return HttpRouter.middleware(
+      (httpApp) =>
+        Effect.gen(function* () {
+          const request = yield* HttpServerRequest.HttpServerRequest;
+          const url = HttpServerRequest.toURL(request);
+          if (
+            (request.method === "GET" || request.method === "HEAD") &&
+            Option.isSome(url) &&
+            url.value.pathname.startsWith(`${ASSET_ROUTE_PREFIX}/`)
+          ) {
+            // Signed assets authorize themselves, including requests from an opaque
+            // preview origin. Never apply the app's credentialed CORS policy here.
+            return yield* httpApp;
+          }
+          return yield* apiCors(httpApp);
+        }),
+      { global: true },
+    );
   }),
 );
 
@@ -394,6 +412,9 @@ export const assetRouteLayer = HttpRouter.add(
       request.headers["if-range"],
       request.method === "HEAD" ? "HEAD" : "GET",
     ).pipe(
+      // Only a successfully resolved signed asset is readable across origins.
+      // Module scripts and fetch() in sandboxed HTML have Origin: null.
+      Effect.map(HttpServerResponse.setHeader("Access-Control-Allow-Origin", "*")),
       Effect.orElseSucceed(() => HttpServerResponse.text("Internal Server Error", { status: 500 })),
     );
   }),

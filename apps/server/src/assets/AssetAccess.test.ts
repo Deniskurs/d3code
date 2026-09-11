@@ -12,7 +12,7 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 import * as TestClock from "effect/testing/TestClock";
-import { HttpServerResponse } from "effect/unstable/http";
+import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
 import { vi } from "vite-plus/test";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
@@ -20,7 +20,7 @@ import * as ServerConfig from "../config.ts";
 import * as ProjectFaviconResolver from "../project/ProjectFaviconResolver.ts";
 import * as T3ProjectFileLoader from "../project/T3ProjectFileLoader.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
-import { assetFileResponse } from "../http.ts";
+import { assetFileResponse, assetRouteLayer, browserApiCorsLayer } from "../http.ts";
 import { ASSET_ROUTE_PREFIX, issueAssetUrl, resolveAsset } from "./AssetAccess.ts";
 import * as NativeAppIconResolver from "./NativeAppIconResolver.ts";
 import { openMediaFile } from "./MediaFile.ts";
@@ -458,6 +458,86 @@ describe("AssetAccess", () => {
       expect(yield* resolveAsset(token, "../secret.txt")).toBeNull();
       expect(yield* resolveAsset(token, ".env")).toBeNull();
       expect(yield* resolveAsset(`${token}tampered`, "report.html")).toBeNull();
+    }).pipe(Effect.provide(testLayer)),
+  );
+
+  it.effect("serves sandboxed visualization modules and fetches without app credentials", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const config = yield* ServerConfig.ServerConfig;
+      const context = yield* Effect.context<Layer.Success<typeof testLayer>>();
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-visualization-" });
+      const html = '<div id="chart"></div><script type="module" src="./chart.mjs"></script>';
+      const module = [
+        'import { points } from "./points.mjs";',
+        'const style = await fetch("./chart.css").then((response) => response.text());',
+        'document.querySelector("#chart").textContent = `${points.join(",")} ${style}`;',
+      ].join("\n");
+      const files = [
+        ["chart.html", "text/html", html],
+        ["chart.mjs", "javascript", module],
+        ["points.mjs", "javascript", "export const points = [1, 3, 2];"],
+        ["chart.css", "text/css", "body { color: teal; }"],
+        ["report.pdf", "application/pdf", "%PDF-1.4\n%%EOF"],
+      ] as const;
+      for (const [name, , contents] of files) {
+        yield* fs.writeFileString(path.join(root, name), contents);
+      }
+      const issued = yield* issueAssetUrl({
+        resource: {
+          _tag: "workspace-file",
+          threadId: ThreadId.make("visualization-thread"),
+          path: path.join(root, "chart.html"),
+        },
+        workspaceRoot: root,
+      });
+      const entry = new URL(issued.relativeUrl, "http://preview.test");
+      for (const devUrl of [new URL("http://localhost:5733"), undefined]) {
+        const corsLayer = browserApiCorsLayer.pipe(
+          Layer.provide(Layer.succeed(ServerConfig.ServerConfig)({ ...config, devUrl })),
+        );
+        const app = HttpRouter.toWebHandler(
+          Layer.mergeAll(
+            assetRouteLayer,
+            HttpRouter.add("GET", "/api/preview-cors-control", HttpServerResponse.empty()),
+          ).pipe(Layer.provide(corsLayer), Layer.provideMerge(Layer.succeedContext(context))),
+          { disableLogger: true },
+        );
+        yield* Effect.addFinalizer(() => Effect.promise(() => app.dispose()));
+        const request = (url: URL, method = "GET") =>
+          Effect.promise(() =>
+            app.handler(new Request(url.href, { method, headers: { origin: "null" } })),
+          );
+        for (const [name, mimeType, contents] of files) {
+          const response = yield* request(new URL(name, entry));
+          expect(response.status).toBe(200);
+          expect(response.headers.get("content-type")).toContain(mimeType);
+          expect(response.headers.get("access-control-allow-origin")).toBe("*");
+          expect(response.headers.has("access-control-allow-credentials")).toBe(false);
+          expect(response.headers.has("set-cookie")).toBe(false);
+          expect(yield* Effect.promise(() => response.text())).toBe(contents);
+          const policy = response.headers.get("content-security-policy");
+          if (name === "chart.html") {
+            expect(policy?.split(" ")).toContain("allow-scripts");
+            expect(policy?.split(" ")).toContain("sandbox");
+            expect(policy?.split(" ")).not.toContain("allow-same-origin");
+          } else if (name === "report.pdf") {
+            expect(policy).toBeNull();
+          }
+        }
+        const head = yield* request(new URL("chart.mjs", entry), "HEAD");
+        expect(head.headers.get("access-control-allow-origin")).toBe("*");
+        expect(head.headers.has("access-control-allow-credentials")).toBe(false);
+        expect(yield* Effect.promise(() => head.text())).toBe("");
+        // Keep the existing file-type grant: JSON is not an authorized sibling.
+        yield* fs.writeFileString(path.join(root, "points.json"), "[1,3,2]");
+        const denied = yield* request(new URL("points.json", entry));
+        expect(denied.status).toBe(404);
+        expect(denied.headers.has("access-control-allow-origin")).toBe(false);
+        const control = yield* request(new URL("/api/preview-cors-control", entry));
+        expect(control.headers.get("access-control-allow-origin")).toBe(devUrl ? null : "*");
+      }
     }).pipe(Effect.provide(testLayer)),
   );
 
