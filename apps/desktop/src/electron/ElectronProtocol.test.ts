@@ -227,10 +227,11 @@ describe("ElectronProtocol", () => {
     ]);
     assert.deepEqual(directives["media-src"], ["'self'", "d3code:", "blob:", "http:", "https:"]);
     assert.deepEqual(directives["font-src"], ["'self'", "d3code:", "data:"]);
-    // Preview environments are selected at runtime and may use any host/port.
-    // Only their signed-asset path may be embedded, not arbitrary API pages.
+    // Local attachment previews use Blob URLs. Remote previews may use any host/port,
+    // but only their signed-asset path may be embedded, not arbitrary API pages.
     assert.deepEqual(directives["frame-src"], [
       "'self'",
+      "blob:",
       "http://*:*/api/assets/",
       "https://*:*/api/assets/",
       "https://challenges.cloudflare.com",

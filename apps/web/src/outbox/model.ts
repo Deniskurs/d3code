@@ -59,9 +59,11 @@ export function outboxDeliveryState(
   thread: OrchestrationThreadShell | undefined,
   connected: boolean,
   live: boolean,
+  rewinding = false,
 ): OutboxDeliveryState {
   if (!connected || !live) return "offline";
   if (!thread || thread.archivedAt) return "unavailable";
+  if (rewinding) return "paused";
   if (message.status === "submitted") {
     // Message projection alone is not completion: its session may still be the
     // idle snapshot from before dispatch. A newer settled session also covers

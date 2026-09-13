@@ -1,10 +1,10 @@
-/** D3 releases are rebuilt and tested locally before installation. */
+/** D3 releases retain fork changes and pass release checks before publication. */
 export const d3Build = {
   automaticUpdates: true,
   remoteServerUpdates: false,
   nativePasskeys: false,
   supportsManagedService: false,
-  upstreamTag: "v0.0.41-nightly.20260910.1486",
+  upstreamTag: "v0.0.41-nightly.20260913.1646",
   repository: "Deniskurs/d3code",
   updateTrack: { channel: "latest", label: "Devis" } as const,
 };

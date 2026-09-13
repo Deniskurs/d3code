@@ -66,6 +66,24 @@ const run = (command, args, cwd) =>
   }).trim();
 const git = (args, cwd) => run("git", args, cwd);
 
+/** Never publish a newer version from a branch missing an already shipped D3 change. */
+export function assertPublishedHistory(cwd, releases) {
+  const latest = releases
+    .filter(
+      (release) =>
+        !release.draft && !release.prerelease && /^v\d+\.\d+\.\d+$/.test(release.tag_name),
+    )
+    .sort((a, b) => compareVersions(b.tag_name, a.tag_name))[0];
+  if (!latest) return;
+  try {
+    git(["merge-base", "--is-ancestor", `refs/tags/${latest.tag_name}^{commit}`, "HEAD"], cwd);
+  } catch {
+    throw new Error(
+      `Nightly sync paused. Integrate published D3 release ${latest.tag_name} into main before preparing another release.`,
+    );
+  }
+}
+
 /** The merge happens in a disposable checkout. Conflicts never modify the public branch. */
 export function prepareCandidate({ cwd, upstreamRef, tag, version, bundlePath }) {
   if (!nightlyPattern.test(tag) || !versionPattern.test(version))
@@ -172,6 +190,7 @@ export function main() {
     summary(plan.reason);
     return;
   }
+  assertPublishedHistory(cwd, releases);
   git(["config", "user.name", "D3 release automation"], cwd);
   git(["config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"], cwd);
   git(["config", "core.hooksPath", "/dev/null"], cwd);

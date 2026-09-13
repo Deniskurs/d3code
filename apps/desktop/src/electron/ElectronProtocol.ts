@@ -91,10 +91,10 @@ export function makeDesktopContentSecurityPolicy(input: DesktopProtocolRegistrat
     "style-src 'self' 'unsafe-inline'",
     `font-src 'self' ${input.scheme}: data:`,
     "worker-src 'self' blob:",
-    // Sidebar HTML/PDF frames use signed URLs on local or user-selected remote
-    // environments. Keep the host/port dynamic, but restrict frames to assets;
-    // the HTML response and iframe retain their opaque-origin sandbox.
-    "frame-src 'self' http://*:*/api/assets/ https://*:*/api/assets/ https://challenges.cloudflare.com",
+    // Document viewers use local Blob URLs or signed assets from runtime environments.
+    // Keep network frames restricted to assets; HTML frames retain their opaque-origin
+    // sandbox and the renderer's script policy stays unchanged.
+    "frame-src 'self' blob: http://*:*/api/assets/ https://*:*/api/assets/ https://challenges.cloudflare.com",
     "form-action 'self'",
   ].join("; ");
 }

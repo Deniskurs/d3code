@@ -9,6 +9,11 @@ import { useEffect, useRef } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentId } from "@t3tools/contracts";
+import { scopedThreadKey } from "@t3tools/client-runtime/environment";
+import { serializeLegacyContextMessage } from "@t3tools/shared/composerContextLegacySend";
+import { useComposerDraftStore } from "../composerDraftStore";
+import { appAtomRegistry } from "../rpc/atomRegistry";
+import { environmentServerConfigsAtom } from "../state/server";
 import { useEnvironments, useEnvironment } from "../state/environments";
 import { readThreadShell, useThreadShells } from "../state/entities";
 import { environmentShell } from "../state/shell";
@@ -20,6 +25,7 @@ import { readMessages, mutateOutbox, refreshOutbox, useOutbox } from "./store";
 function EnvironmentOutbox({ environmentId }: { environmentId: EnvironmentId }) {
   const messages = useOutbox();
   const threads = useThreadShells();
+  const rewindingThreadKeys = useComposerDraftStore((store) => store.rewindingThreadKeys);
   const environment = useEnvironment(environmentId);
   const shell = useAtomValue(environmentShell.stateValueAtom(environmentId));
   const start = useAtomCommand(threadEnvironment.startTurn, { reportFailure: false });
@@ -45,6 +51,7 @@ function EnvironmentOutbox({ environmentId }: { environmentId: EnvironmentId }) 
         thread,
         environment?.connection.phase === "connected",
         shell.status === "live",
+        rewindingThreadKeys.has(scopedThreadKey({ environmentId, threadId })),
       );
       if (eligibility !== "send" && eligibility !== "finished") continue;
       let changed = false;
@@ -67,6 +74,9 @@ function EnvironmentOutbox({ environmentId }: { environmentId: EnvironmentId }) 
                 thread,
                 state.environment?.connection.phase === "connected",
                 state.shell.status === "live",
+                useComposerDraftStore
+                  .getState()
+                  .rewindingThreadKeys.has(scopedThreadKey({ environmentId, threadId })),
               );
               if (action === "finished") {
                 changed = true;
@@ -100,6 +110,9 @@ function EnvironmentOutbox({ environmentId }: { environmentId: EnvironmentId }) 
                     throw new Error(
                       "An attachment could not upload. Check the connection and retry delivery.",
                     );
+                  const uploadedIdByLocalId = new Map(
+                    attachments.map((attachment, index) => [attachment.id, uploaded[index]!.id]),
+                  );
                   const prepared = await mutateOutbox(
                     claimed.id,
                     (current) =>
@@ -108,7 +121,28 @@ function EnvironmentOutbox({ environmentId }: { environmentId: EnvironmentId }) 
                         prepared: true,
                         input: {
                           ...current.input,
-                          message: { ...current.input.message, attachments: uploaded },
+                          message: {
+                            ...current.input.message,
+                            attachments: uploaded,
+                            ...(current.input.message.context !== undefined
+                              ? {
+                                  context: {
+                                    ...current.input.message.context,
+                                    records: current.input.message.context.records.map((record) =>
+                                      (record.kind === "image" || record.kind === "file") &&
+                                      "attachmentId" in record
+                                        ? {
+                                            ...record,
+                                            attachmentId:
+                                              uploadedIdByLocalId.get(record.attachmentId) ??
+                                              record.attachmentId,
+                                          }
+                                        : record,
+                                    ),
+                                  },
+                                }
+                              : {}),
+                          },
                         },
                       },
                   );
@@ -118,6 +152,23 @@ function EnvironmentOutbox({ environmentId }: { environmentId: EnvironmentId }) 
                 const dispatchThread = readThreadShell({ environmentId, threadId }) ?? undefined;
                 const retryingDispatch = claimed.dispatchAttempted !== false;
                 if (!retryingDispatch) {
+                  const context = claimed.input.message.context;
+                  const supportsInlineMessageContext =
+                    appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)
+                      ?.environment.capabilities.inlineMessageContext === true;
+                  const legacyMessage =
+                    context !== undefined && !supportsInlineMessageContext
+                      ? (() => {
+                          const { context: _context, ...message } = claimed.input.message;
+                          return {
+                            ...message,
+                            text: serializeLegacyContextMessage({
+                              text: message.text,
+                              records: context.records,
+                            }),
+                          };
+                        })()
+                      : undefined;
                   const dispatching = await mutateOutbox(claimed.id, (current) =>
                     current
                       ? {
@@ -127,6 +178,7 @@ function EnvironmentOutbox({ environmentId }: { environmentId: EnvironmentId }) 
                             dispatchThread?.session?.updatedAt ?? null,
                           input: {
                             ...current.input,
+                            ...(legacyMessage !== undefined ? { message: legacyMessage } : {}),
                             createdAt: new Date().toISOString(),
                             deliveryMode: current.sendNow ? "steer" : "queue",
                           },
@@ -142,6 +194,9 @@ function EnvironmentOutbox({ environmentId }: { environmentId: EnvironmentId }) 
                     readThreadShell({ environmentId, threadId }) ?? undefined,
                     live.current.environment?.connection.phase === "connected",
                     live.current.shell.status === "live",
+                    useComposerDraftStore
+                      .getState()
+                      .rewindingThreadKeys.has(scopedThreadKey({ environmentId, threadId })),
                   ) !== "send"
                 ) {
                   await mutateOutbox(claimed.id, (current) =>
@@ -192,7 +247,7 @@ function EnvironmentOutbox({ environmentId }: { environmentId: EnvironmentId }) 
           });
         });
     }
-  }, [messages, threads, environment, shell, environmentId, start]);
+  }, [messages, threads, rewindingThreadKeys, environment, shell, environmentId, start]);
   return null;
 }
 

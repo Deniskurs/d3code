@@ -75,6 +75,12 @@ describe("device outbox delivery", () => {
       "paused",
     );
   });
+  it("pauses queue delivery and explicit steering during conversation rewind", () => {
+    expect(outboxDeliveryState(message, ready, true, true, true)).toBe("paused");
+    expect(outboxDeliveryState({ ...message, sendNow: true }, running, true, true, true)).toBe(
+      "paused",
+    );
+  });
   it("cannot drain a message while it is being edited or explicitly paused", () => {
     expect(state({ ...message, status: "editing" })).toBe("paused");
     expect(state({ ...message, status: "paused" })).toBe("paused");

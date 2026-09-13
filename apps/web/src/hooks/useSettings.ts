@@ -27,8 +27,6 @@ import {
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
 import {
   filterSharedServerPatch,
-  findSharedSettingsMismatches,
-  pickSharedServerSettings,
   splitSharedServerPatch,
   supportsSharedSettingsSync,
 } from "@t3tools/client-runtime/state/shared-settings";
@@ -47,6 +45,10 @@ import { primaryServerSettingsAtom, serverEnvironment } from "~/state/server";
 import { useEnvironments, usePrimaryEnvironment } from "~/state/environments";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { useTheme } from "./useTheme";
+import {
+  applyNotificationSettingsPatch,
+  normalizeNotificationSettings,
+} from "../threadNotifications";
 
 const CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE = "[CLIENT_SETTINGS]";
 
@@ -136,7 +138,9 @@ async function hydrateClientSettings(): Promise<void> {
         return;
       }
       if (persistedSettings) {
-        replaceClientSettingsSnapshot({ ...DEFAULT_CLIENT_SETTINGS, ...persistedSettings });
+        replaceClientSettingsSnapshot(
+          normalizeNotificationSettings({ ...DEFAULT_CLIENT_SETTINGS, ...persistedSettings }),
+        );
       }
       setClientSettingsHydrationStatus("ready");
     } catch (error) {
@@ -183,7 +187,9 @@ export function persistClientSettingsPatch(
   if (deferPatch) {
     deferredClientSettingsPatchCount += 1;
   } else {
-    replaceClientSettingsSnapshot({ ...getClientSettingsSnapshot(), ...patch });
+    replaceClientSettingsSnapshot(
+      applyNotificationSettingsPatch(getClientSettingsSnapshot(), patch),
+    );
   }
   return enqueueClientSettingsPersistence(async () => {
     if (deferPatch) {
@@ -191,7 +197,9 @@ export function persistClientSettingsPatch(
         if (clientSettingsHydrationStatus !== "ready") {
           await hydrateClientSettings();
         }
-        replaceClientSettingsSnapshot({ ...getClientSettingsSnapshot(), ...patch });
+        replaceClientSettingsSnapshot(
+          applyNotificationSettingsPatch(getClientSettingsSnapshot(), patch),
+        );
       } finally {
         deferredClientSettingsPatchCount -= 1;
       }
@@ -491,73 +499,6 @@ function useUpdateSettingsTarget(environmentId: EnvironmentId | null) {
   );
 
   return updateSettings;
-}
-
-/**
- * Shared-settings sync targets whose values differ from the primary's,
- * plus an action that writes the primary's values to all of them. Drift
- * happens when an environment was offline during an edit or was changed by
- * an older client.
- */
-export function useSharedSettingsSync() {
-  const primaryEnvironment = usePrimaryEnvironment();
-  const primaryEnvironmentId = primaryEnvironment?.environmentId ?? null;
-  const primaryCapabilities = primaryEnvironment?.serverConfig?.environment.capabilities;
-  // Read the loaded config, not `primaryServerSettingsAtom`: that atom falls
-  // back to defaults while the primary is disconnected, and "apply to all"
-  // must never push defaults over real values. Same for a primary too old to
-  // hold the shared keys: its decoded defaults are not a source of truth.
-  const primarySettings =
-    primaryEnvironment !== null && supportsSharedSettingsSync(primaryEnvironment)
-      ? (primaryEnvironment.serverConfig?.settings ?? null)
-      : null;
-  const { environments } = useEnvironments();
-  const persistServerSettings = useAtomCommand(
-    serverEnvironment.updateSettings,
-    "server settings update",
-  );
-
-  const mismatches = useMemo(
-    () =>
-      findSharedSettingsMismatches({
-        primaryEnvironmentId,
-        primarySettings,
-        primaryCapabilities,
-        environments: environments.map((environment) => ({
-          environmentId: environment.environmentId,
-          label: environment.label,
-          syncEligible: supportsSharedSettingsSync(environment),
-          settings: environment.serverConfig?.settings ?? null,
-          capabilities: environment.serverConfig?.environment.capabilities,
-        })),
-      }),
-    [environments, primaryEnvironmentId, primarySettings, primaryCapabilities],
-  );
-
-  const applyToAll = useCallback(() => {
-    if (primarySettings === null) {
-      return;
-    }
-    const patch = pickSharedServerSettings(primarySettings, primaryCapabilities);
-    for (const mismatch of mismatches) {
-      const target = environments.find(
-        (candidate) => candidate.environmentId === mismatch.environmentId,
-      );
-      void persistServerSettings({
-        environmentId: mismatch.environmentId,
-        input: {
-          patch: filterSharedServerPatch(
-            patch,
-            target?.serverConfig?.environment.capabilities,
-            target?.serverConfig?.settings,
-            primarySettings,
-          ),
-        },
-      });
-    }
-  }, [environments, mismatches, persistServerSettings, primarySettings, primaryCapabilities]);
-
-  return { mismatches, applyToAll };
 }
 
 export function useUpdateEnvironmentSettings(environmentId: EnvironmentId) {

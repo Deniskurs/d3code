@@ -157,6 +157,56 @@ describe("client settings hydration", () => {
     expect(getClientSettings()).toEqual(expected);
     expect(durableSettings).toEqual(expected);
   });
+
+  it("preserves saved D3 notification opt-outs through hydration and unrelated writes", async () => {
+    persistenceMocks.getClientSettings.mockResolvedValue({
+      ...savedSettings,
+      agentNotificationsEnabled: false,
+      agentNotificationSound: false,
+      agentNotificationDesktop: false,
+    });
+
+    await ensureClientSettingsHydrated();
+    await persistClientSettingsPatch({ wordWrap: false });
+
+    expect(getClientSettings()).toMatchObject({
+      agentNotificationsEnabled: false,
+      agentNotificationSound: false,
+      agentNotificationDesktop: false,
+      notificationMode: "off",
+      wordWrap: false,
+    });
+  });
+
+  it("does not enable a saved muted channel when the mode field is defaulted", async () => {
+    persistenceMocks.getClientSettings.mockResolvedValue({
+      ...savedSettings,
+      agentNotificationSound: false,
+    });
+
+    await ensureClientSettingsHydrated();
+
+    expect(getClientSettings()).toMatchObject({
+      agentNotificationSound: false,
+      agentNotificationDesktop: true,
+      notificationMode: "notifications",
+    });
+  });
+
+  it("respects an explicitly saved upstream off mode", async () => {
+    persistenceMocks.getClientSettings.mockResolvedValue({
+      ...savedSettings,
+      notificationMode: "off",
+    });
+
+    await ensureClientSettingsHydrated();
+
+    expect(getClientSettings()).toMatchObject({
+      agentNotificationSound: false,
+      agentNotificationDesktop: false,
+      notificationMode: "off",
+    });
+  });
 });
 
 describe("persistClientSettingsPatch", () => {
@@ -187,6 +237,36 @@ describe("persistClientSettingsPatch", () => {
 
     expect(persistenceMocks.setClientSettings).toHaveBeenNthCalledWith(1, firstSettings);
     expect(persistenceMocks.setClientSettings).toHaveBeenNthCalledWith(2, secondSettings);
+  });
+
+  it("keeps the mode selector and individual notification channels synchronized", async () => {
+    await ensureClientSettingsHydrated();
+
+    await persistClientSettingsPatch({ notificationMode: "off" });
+    expect(getClientSettings()).toMatchObject({
+      agentNotificationSound: false,
+      agentNotificationDesktop: false,
+    });
+
+    await persistClientSettingsPatch({ agentNotificationSound: true });
+    expect(getClientSettings().notificationMode).toBe("sound");
+
+    await persistClientSettingsPatch({ agentNotificationDesktop: true });
+    expect(getClientSettings().notificationMode).toBe("notifications-and-sound");
+
+    await persistClientSettingsPatch({ notificationMode: "notifications" });
+    expect(getClientSettings()).toMatchObject({
+      agentNotificationSound: false,
+      agentNotificationDesktop: true,
+    });
+
+    await persistClientSettingsPatch({ agentNotificationsEnabled: false });
+    await persistClientSettingsPatch({ notificationMode: "sound" });
+    expect(getClientSettings()).toMatchObject({
+      agentNotificationsEnabled: false,
+      agentNotificationSound: true,
+      agentNotificationDesktop: false,
+    });
   });
 });
 

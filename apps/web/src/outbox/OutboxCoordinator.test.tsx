@@ -5,12 +5,16 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   CommandId,
+  ComposerContextId,
   EnvironmentId,
   MessageId,
   ThreadId,
   type OrchestrationThreadShell,
 } from "@t3tools/contracts";
 import type { OutboxMessage } from "./model";
+import { scopedThreadKey } from "@t3tools/client-runtime/environment";
+import { formatComposerContextReference } from "@t3tools/shared/composerContextReferences";
+import { upgradeLegacyContextMessage } from "@t3tools/shared/composerContextLegacy";
 
 const boundary = vi.hoisted(() => ({
   messages: [] as OutboxMessage[],
@@ -18,16 +22,39 @@ const boundary = vi.hoisted(() => ({
   listeners: new Set<() => void>(),
   start: vi.fn(),
   uploads: vi.fn(),
+  uploadedAttachments: vi.fn(),
+  rewindingThreadKeys: new Set<string>(),
+  inlineMessageContext: true,
   locks: new Set<string>(),
 }));
 vi.mock("../components/ui/toast", () => ({ toastManager: { add: vi.fn() } }));
 vi.mock("../lib/attachmentUploadQueue", () => ({
   startAttachmentUpload: vi.fn(),
   awaitAttachmentUploads: (...args: unknown[]) => boundary.uploads(...args),
-  getUploadedAttachments: () => [],
+  getUploadedAttachments: (...args: unknown[]) => boundary.uploadedAttachments(...args),
   releaseDraftAttachments: vi.fn(),
 }));
 vi.mock("@effect/atom-react", () => ({ useAtomValue: () => ({ status: "live" }) }));
+vi.mock("../composerDraftStore", () => ({
+  useComposerDraftStore: Object.assign(
+    (selector: (state: typeof boundary) => unknown) => selector(boundary),
+    { getState: () => boundary },
+  ),
+}));
+vi.mock("../state/server", () => ({ environmentServerConfigsAtom: null }));
+vi.mock("../rpc/atomRegistry", () => ({
+  appAtomRegistry: {
+    get: () =>
+      new Map([
+        [
+          "environment",
+          {
+            environment: { capabilities: { inlineMessageContext: boundary.inlineMessageContext } },
+          },
+        ],
+      ]),
+  },
+}));
 vi.mock("../state/environments", () => ({
   useEnvironments: () => ({ environments: [{ environmentId: "environment" }] }),
   useEnvironment: () => ({ connection: { phase: "connected" } }),
@@ -109,6 +136,9 @@ beforeEach(() => {
   boundary.locks.clear();
   boundary.start.mockReset().mockResolvedValue({ _tag: "Success", value: undefined });
   boundary.uploads.mockReset().mockResolvedValue(undefined);
+  boundary.uploadedAttachments.mockReset().mockReturnValue([]);
+  boundary.rewindingThreadKeys.clear();
+  boundary.inlineMessageContext = true;
   boundary.threads = [
     {
       id: threadId,
@@ -247,5 +277,120 @@ describe("outbox coordinator", () => {
     expect(boundary.start.mock.calls[0]![0].input.message.text).toBe("second");
     expect(boundary.start.mock.calls[0]![0].input.deliveryMode).toBe("steer");
     expect(boundary.messages.map((message) => message.id)).toEqual(["first"]);
+  });
+
+  it("binds queued chips to uploaded attachments without changing context identities on retry", async () => {
+    const message = queued("context");
+    const attachment = {
+      type: "file" as const,
+      id: "queued-file",
+      name: "paste.txt",
+      mimeType: "text/plain",
+      sizeBytes: 5,
+      file: new File(["hello"], "paste.txt", { type: "text/plain" }),
+    };
+    const record = {
+      version: 1 as const,
+      contextId: ComposerContextId.make("file_original-draft-id"),
+      kind: "file" as const,
+      label: attachment.name,
+      attachmentId: attachment.id,
+      name: attachment.name,
+      mimeType: attachment.mimeType,
+      sizeBytes: attachment.sizeBytes,
+    };
+    const text = `Review ${formatComposerContextReference(record)}`;
+    boundary.messages = [
+      {
+        ...message,
+        localAttachments: [attachment],
+        input: {
+          ...message.input,
+          message: { ...message.input.message, text, context: { version: 1, records: [record] } },
+        },
+      },
+    ];
+    boundary.uploadedAttachments.mockReturnValue([
+      {
+        type: "file",
+        id: "uploaded-file",
+        name: attachment.name,
+        mimeType: attachment.mimeType,
+        sizeBytes: attachment.sizeBytes,
+      },
+    ]);
+    boundary.start.mockRejectedValueOnce(new Error("Lost acknowledgement"));
+    await render();
+    const dispatched = boundary.start.mock.calls[0]![0].input;
+    expect(dispatched.message.text).toBe(text);
+    expect(dispatched.message.context.records).toEqual([
+      { ...record, attachmentId: "uploaded-file" },
+    ]);
+    expect(dispatched.message.attachments[0].id).toBe("uploaded-file");
+    boundary.messages = [{ ...boundary.messages[0]!, status: "waiting" }];
+    boundary.inlineMessageContext = false;
+    await render();
+    expect(boundary.start.mock.calls[1]![0].input).toEqual(dispatched);
+  });
+
+  it("serializes queued terminal context for servers without inline context support", async () => {
+    const message = queued("legacy-context");
+    const record = {
+      version: 1 as const,
+      contextId: ComposerContextId.make("terminal_selection"),
+      kind: "terminal" as const,
+      label: "Terminal 1 lines 3-4",
+      terminalId: "terminal-1",
+      terminalLabel: "Terminal 1",
+      lineStart: 3,
+      lineEnd: 4,
+      text: "compiler failed\nmissing module",
+    };
+    boundary.inlineMessageContext = false;
+    boundary.messages = [
+      {
+        ...message,
+        input: {
+          ...message.input,
+          message: {
+            ...message.input.message,
+            text: `Explain ${formatComposerContextReference(record)}`,
+            context: { version: 1, records: [record] },
+          },
+        },
+      },
+    ];
+    await render();
+    const sent = boundary.start.mock.calls[0]![0].input.message;
+    expect(upgradeLegacyContextMessage(sent.text).records[0]).toMatchObject({
+      kind: "terminal",
+      terminalLabel: record.terminalLabel,
+      lineStart: record.lineStart,
+      lineEnd: record.lineEnd,
+      text: record.text,
+    });
+    expect(sent.text).not.toContain("t3-context://");
+    expect(sent.context).toBeUndefined();
+  });
+
+  it("holds delivery when rewind begins during uploads and resumes after it settles", async () => {
+    let finishUploads!: () => void;
+    boundary.uploads.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishUploads = resolve;
+        }),
+    );
+    boundary.messages = [{ ...queued("rewind"), sendNow: true }];
+    await render();
+    const key = scopedThreadKey({ environmentId, threadId });
+    boundary.rewindingThreadKeys.add(key);
+    await act(async () => finishUploads());
+    expect(boundary.start).not.toHaveBeenCalled();
+    expect(boundary.messages[0]?.status).toBe("waiting");
+    boundary.rewindingThreadKeys = new Set();
+    await render();
+    expect(boundary.start).toHaveBeenCalledTimes(1);
+    expect(boundary.start.mock.calls[0]![0].input.deliveryMode).toBe("steer");
   });
 });

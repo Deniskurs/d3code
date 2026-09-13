@@ -4,7 +4,13 @@ import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
-import { nextVersion, planSync, prepareCandidate, releaseNotes } from "./d3-upstream-sync.mjs";
+import {
+  assertPublishedHistory,
+  nextVersion,
+  planSync,
+  prepareCandidate,
+  releaseNotes,
+} from "./d3-upstream-sync.mjs";
 
 const oldTag = "v0.0.41-nightly.20260909.1439";
 const newTag = "v0.0.41-nightly.20260909.1461";
@@ -96,6 +102,31 @@ function fixture(t) {
   git("commit", "-m", "D3 changes");
   return { cwd, git, write };
 }
+
+NodeTest.test("refuses to release from a branch missing published custom changes", (t) => {
+  const { cwd, git, write } = fixture(t);
+  git("tag", "v0.1.3");
+  git("checkout", "-b", "custom");
+  write("custom-feature.txt", "already shipped custom feature\n");
+  git("add", ".");
+  git("commit", "-m", "custom feature released off main");
+  git("tag", "v0.1.4");
+  git("checkout", "main");
+  const releases = [release("v0.1.3"), release("v0.1.4")];
+  NodeAssert.throws(() => assertPublishedHistory(cwd, releases), /v0\.1\.4/);
+  git("merge", "--ff-only", "custom");
+  assertPublishedHistory(cwd, releases);
+  const bundlePath = NodePath.join(cwd, "candidate.bundle");
+  prepareCandidate({ cwd, upstreamRef: newTag, tag: newTag, version: "0.1.5", bundlePath });
+  NodeAssert.equal(
+    NodeFS.readFileSync(NodePath.join(cwd, "custom-feature.txt"), "utf8"),
+    "already shipped custom feature\n",
+  );
+  NodeAssert.equal(
+    NodeFS.readFileSync(NodePath.join(cwd, "new-feature.txt"), "utf8"),
+    "nightly feature\n",
+  );
+});
 
 NodeTest.test(
   "merges source, retains D3 automation, stamps all versions, and makes a transferable bundle",

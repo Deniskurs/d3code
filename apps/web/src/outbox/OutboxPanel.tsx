@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import {
   ArrowUpRightIcon,
@@ -13,6 +13,7 @@ import {
   XIcon,
 } from "lucide-react";
 import { useId, useState } from "react";
+import { useComposerDraftStore } from "../composerDraftStore";
 import { ComposerBanner } from "../components/chat/ComposerBanner";
 import { Button } from "../components/ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../components/ui/menu";
@@ -308,6 +309,9 @@ export function OutboxPanel({
   const environment = useEnvironment(environmentId);
   const shell = useAtomValue(environmentShell.stateValueAtom(environmentId));
   const thread = useThreadShell(scopeThreadRef(environmentId, threadId));
+  const rewinding = useComposerDraftStore((store) =>
+    store.rewindingThreadKeys.has(scopedThreadKey({ environmentId, threadId })),
+  );
   const [expanded, setExpanded] = useState(true);
   const listId = useId();
   if (messages.length === 0) return null;
@@ -367,12 +371,14 @@ export function OutboxPanel({
                     thread ?? undefined,
                     environment?.connection.phase === "connected",
                     shell.status === "live",
+                    rewinding,
                   )}
                   sendNowDelivery={outboxDeliveryState(
                     { ...message, status: "waiting", sendNow: true },
                     thread ?? undefined,
                     environment?.connection.phase === "connected",
                     shell.status === "live",
+                    rewinding,
                   )}
                 />
               ))}

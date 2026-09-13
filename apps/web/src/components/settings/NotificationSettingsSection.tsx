@@ -9,6 +9,7 @@ import { Button } from "../ui/button";
 import { Switch } from "../ui/switch";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
+import { NotificationSettings } from "./NotificationSettings";
 
 export function NotificationSettingsSection() {
   const settings = useClientSettings();
@@ -65,6 +66,7 @@ export function NotificationSettingsSection() {
           />
         }
       />
+      <NotificationSettings />
       <SettingsRow
         {...searchableSetting("agent-notification-sound")}
         description="Play a sound for agent alerts, independently of system notifications."

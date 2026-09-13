@@ -33,6 +33,10 @@ vi.mock("../state/entities", () => ({
 vi.mock("../state/shell", () => ({
   environmentShell: { stateValueAtom: () => null },
 }));
+vi.mock("../composerDraftStore", () => ({
+  useComposerDraftStore: (selector: (store: { rewindingThreadKeys: Set<string> }) => unknown) =>
+    selector({ rewindingThreadKeys: new Set() }),
+}));
 vi.mock("./store", () => ({
   useOutbox: () => state.messages,
   mutateOutbox: async (
