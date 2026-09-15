@@ -14,7 +14,7 @@ Use **Check for updates** in the provider settings to keep OMP current. D3's app
 
 ## Queue a follow-up
 
-The web and desktop composer [automatically queues follow-ups](composer.md#queue-a-follow-up) while OMP is working. Choose **Send now** on a queued message to steer the current task. OMP applies those instructions at its next message or tool boundary, without stopping the current model response instantly.
+The web and desktop composer [queues follow-ups in the conversation](composer.md#send-while-the-agent-is-working) while OMP is working. One message is sent after the next tool call finishes, or when the turn ends. Choose **Send now** on a queued message to steer sooner. OMP applies those instructions at its next message or tool boundary, without stopping the current model response instantly.
 
 Other clients default to steering when sending to a running OMP session. If an OMP installation cannot load D3's steering extension, messages fall back to waiting for the current turn.
 

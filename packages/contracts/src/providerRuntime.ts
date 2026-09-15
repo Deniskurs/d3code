@@ -15,7 +15,7 @@ import {
 } from "./baseSchemas.ts";
 import { ProviderInstanceId, ProviderDriverKind } from "./providerInstance.ts";
 import { ProviderUsageLimitsUpdate } from "./providerUsageLimits.ts";
-import { AssistantDeliveryMode, ProviderApprovalOption } from "./orchestration.ts";
+import { ProviderApprovalOption } from "./orchestration.ts";
 
 const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
 const UnknownRecordSchema = Schema.Record(Schema.String, Schema.Unknown);
@@ -506,7 +506,7 @@ const ContentDeltaPayload = Schema.Struct({
   streamKind: RuntimeContentStreamKind,
   delta: Schema.String,
   /** A harness can require incremental delivery for its native streaming experience. */
-  deliveryMode: Schema.optional(AssistantDeliveryMode),
+  deliveryMode: Schema.optional(Schema.Literals(["streaming", "buffered"])),
   contentIndex: Schema.optional(Schema.Int),
   summaryIndex: Schema.optional(Schema.Int),
 });

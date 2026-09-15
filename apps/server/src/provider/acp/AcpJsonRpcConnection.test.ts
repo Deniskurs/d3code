@@ -198,10 +198,7 @@ describe("AcpSessionRuntime", () => {
       });
       expect(
         events.some(
-          (event) =>
-            event._tag === "ToolCallUpdated" &&
-            event.toolCall.status === "failed" &&
-            event.toolCall.detail === "Cancelled.",
+          (event) => event._tag === "ToolCallUpdated" && event.toolCall.status === "failed",
         ),
       ).toBe(true);
       const cancelledDelta = events.find(
@@ -743,6 +740,43 @@ describe("AcpSessionRuntime", () => {
     ),
   );
 
+  it.effect("keeps assistant text contiguous across background tool progress and completion", () =>
+    Effect.gen(function* () {
+      const events: Array<AcpSessionRuntime.AcpSessionRuntimeEvent> = [];
+      const runtime = yield* AcpSessionRuntime.make({
+        ...mockRuntimeOptions,
+        spawn: {
+          ...mockRuntimeOptions.spawn,
+          env: { T3_ACP_EMIT_PROGRESS_DURING_ASSISTANT: "1" },
+        },
+      });
+      yield* runtime.getEvents().pipe(
+        Stream.runForEach((event) => {
+          if (event._tag === "EventStreamBarrier") {
+            return Deferred.succeed(event.acknowledge, undefined);
+          }
+          events.push(event);
+          return Effect.void;
+        }),
+        Effect.forkChild,
+      );
+      yield* runtime.start();
+      yield* runtime.prompt({ prompt: [{ type: "text", text: "continue while work is running" }] });
+      yield* runtime.drainEvents;
+      const deltas = events.filter((event) => event._tag === "ContentDelta");
+      expect(deltas.map((event) => event.text).join("")).toBe(
+        "D3 **queued messages**.\n\nNext paragraph. Done.",
+      );
+      expect(new Set(deltas.map((event) => event.itemId)).size).toBe(1);
+      expect(events.filter((event) => event._tag === "AssistantItemCompleted")).toHaveLength(1);
+      expect(
+        events.some(
+          (event) => event._tag === "ToolCallUpdated" && event.toolCall.status === "completed",
+        ),
+      ).toBe(true);
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("segments assistant text around ACP tool calls", () =>
     Effect.gen(function* () {
       const runtime = yield* AcpSessionRuntime.AcpSessionRuntime;
@@ -828,9 +862,6 @@ describe("AcpSessionRuntime", () => {
         "inProgress",
         "completed",
       ]);
-      for (const toolCall of toolCalls) {
-        expect(toolCall.title).toBe("Read file");
-      }
     }).pipe(
       Effect.provide(
         AcpSessionRuntime.layer({

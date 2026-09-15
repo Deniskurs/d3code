@@ -30,10 +30,6 @@ interface ComposerPrimaryActionsProps {
   isPreparingWorktree: boolean;
   hasSendableContent: boolean;
   preserveComposerFocusOnPointerDown?: boolean;
-  /** Keep submission available alongside Stop so follow-up messages can be queued. */
-  showSendWhileRunning?: boolean;
-  sendActionLabel?: string | undefined;
-  canQueueMessage?: boolean;
   onPreviousPendingQuestion: () => void;
   onInterrupt: () => void;
   onImplementPlanInNewThread: () => void;
@@ -74,9 +70,6 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   isPreparingWorktree,
   hasSendableContent,
   preserveComposerFocusOnPointerDown = false,
-  showSendWhileRunning = false,
-  sendActionLabel,
-  canQueueMessage = false,
   onPreviousPendingQuestion,
   onInterrupt,
   onImplementPlanInNewThread,
@@ -99,7 +92,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
         "flex cursor-pointer items-center justify-center rounded-full bg-destructive/90 text-white shadow-xs shadow-destructive/24 inset-shadow-[0_1px_--theme(--color-white/16%)] transition-[background-color,box-shadow,scale] duration-150 motion-reduce:transition-none hover:bg-destructive hover:scale-105 active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none",
         insidePendingAction
           ? "size-8 sm:size-7"
-          : showSendWhileRunning && hasSendableContent
+          : hasSendableContent
             ? "size-9 sm:size-8"
             : "size-8 sm:h-8 sm:w-8",
       )}
@@ -239,26 +232,23 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
       );
     }
 
-    const canQueue = canQueueMessage && !isPreparingWorktree;
-    const sendIsBusy = (isConnecting || isSendBusy) && !canQueue;
     const sendButton = (
       <button
         key="send"
         data-composer-action="send"
-        data-composer-action-version={`${sendActionLabel ?? ""}:${sendIsBusy ? "busy" : "ready"}`}
+        data-composer-action-version={isConnecting || isSendBusy ? "busy" : "ready"}
         type="submit"
         className={cn(
           "relative isolate flex h-9 w-9 items-center justify-center overflow-hidden rounded-full shadow-xs transition-[background-color,box-shadow,filter,opacity,scale] duration-150 motion-reduce:transition-none enabled:cursor-pointer enabled:inset-shadow-[0_1px_--theme(--color-white/16%)] hover:scale-105 active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none disabled:pointer-events-none disabled:opacity-30 disabled:shadow-none disabled:hover:scale-100 sm:h-8 sm:w-8",
-          sendActionLabel && "w-auto gap-1.5 px-3 sm:w-auto",
           stageBackdropVariant
             ? "bg-transparent text-white enabled:shadow-black/24 enabled:hover:brightness-110"
             : "bg-message-action text-message-action-foreground enabled:shadow-message-action/24 hover:bg-message-action-hover",
         )}
         {...pointerFocusProps}
         disabled={
-          sendIsBusy ||
+          isSendBusy ||
+          isConnecting ||
           isSendDisabled ||
-          isPreparingWorktree ||
           isEnvironmentUnavailable ||
           !hasSendableContent
         }
@@ -267,22 +257,23 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
             ? "Environment disconnected"
             : sendDisabledReason
               ? sendDisabledReason
-              : isConnecting && !canQueue
+              : isConnecting
                 ? "Connecting"
                 : isPreparingWorktree
                   ? "Preparing worktree"
-                  : isSendBusy && !canQueue
+                  : isSendBusy
                     ? "Sending"
-                    : (sendActionLabel ?? "Send message")
+                    : isRunning
+                      ? "Queue message"
+                      : "Send message"
         }
       >
-        {sendActionLabel ? <span className="text-xs font-medium">{sendActionLabel}</span> : null}
         {stageBackdropVariant ? (
           <span className="absolute inset-0 -z-10" aria-hidden="true">
             <StageBackdropButtonArt variant={stageBackdropVariant} />
           </span>
         ) : null}
-        {sendIsBusy ? (
+        {isConnecting || isSendBusy ? (
           <Spinner className="size-3.5" aria-hidden="true" />
         ) : (
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
@@ -301,7 +292,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
     return (
       <>
         {isRunning ? renderStopGenerationButton(false) : null}
-        {!isRunning || (showSendWhileRunning && hasSendableContent) ? sendButton : null}
+        {!isRunning || hasSendableContent ? sendButton : null}
       </>
     );
   };

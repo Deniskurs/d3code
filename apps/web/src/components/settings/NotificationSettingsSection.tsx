@@ -55,7 +55,7 @@ export function NotificationSettingsSection() {
     <SettingsSection id="notifications" title="Notifications">
       <SettingsRow
         {...searchableSetting("agent-notifications")}
-        description="Get in-app alerts when agents finish or need attention, across all threads and providers in connected environments. The thread you're viewing stays quiet while this window is focused."
+        description="Get alerts when agents finish or need attention, across all threads and providers in connected environments. The thread you're viewing stays quiet while this window is focused."
         control={
           <Switch
             checked={settings.agentNotificationsEnabled}
@@ -63,6 +63,20 @@ export function NotificationSettingsSection() {
               void updateSettings({ agentNotificationsEnabled: checked });
             }}
             aria-label="Agent alerts"
+          />
+        }
+      />
+      <SettingsRow
+        {...searchableSetting("in-app-notifications")}
+        description="Show in-app alerts when another thread finishes, fails, or needs input or approval."
+        control={
+          <Switch
+            checked={settings.inAppNotificationsEnabled}
+            disabled={!settings.agentNotificationsEnabled}
+            onCheckedChange={(checked) => {
+              void updateSettings({ inAppNotificationsEnabled: checked });
+            }}
+            aria-label="In-app notifications"
           />
         }
       />

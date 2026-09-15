@@ -12,18 +12,6 @@ becomes an attachment when inserting it would exceed the message limit. On a
 hardware keyboard, use `Cmd+Shift+V` on Apple devices or `Ctrl+Shift+V` elsewhere
 to keep a large paste editable in the composer instead.
 
-## Queue a follow-up
-
-In the web and desktop composer, sending while an agent is working automatically saves the message to the queue. Clicking the send button and pressing Enter behave the same way. When the agent is idle and the queue is empty, messages start immediately.
-
-Queued messages run in order after the current work finishes. New follow-ups join the back of an existing queue. Choose **Send now** beside a queued message to send it ahead of the queue using the provider's native follow-up behavior; the provider controls when it applies the instructions.
-
-You can edit or remove unsent messages, or pause and resume delivery from a chosen message. Delivery pauses after a stopped or failed agent task and while the agent needs an approval or answer. Use **Send now** on an unsent queued message when you are ready to continue after the task stops or fails; required approvals and answers must still be resolved first.
-
-Queued messages and their attachments are saved on the device where you queued them. Keep D3 open to deliver them; reopening it resumes the queue after reconnecting. Switching conversations does not stop delivery. The queue is not shared with another device or the native mobile client. A file restored from an older draft may need reattaching before it can be saved in the queue.
-
-Messages become read-only once submission starts. If a message's delivery fails or cannot be confirmed, it shows **Needs attention**. Use **Retry** to resend the original command with the same message ID and avoid a duplicate. **Send now** is not available for these failed deliveries. **Submitted** means the server accepted the command; the conversation shows the response when the provider processes it.
-
 ## Attach files
 
 Attach up to eight files per message. Images can be up to 10 MB; other files can
@@ -40,6 +28,31 @@ library; photos over the image limit are also resized to fit. On mobile, you can
 also send files to T3 Code through another app's system share sheet.
 
 See [images and videos](#images-and-videos-in-messages) for previewing and saving media.
+
+## Send while the agent is working
+
+On web and desktop, a message sent during a running turn waits at the end of the
+conversation as a dashed bubble. One message goes out after the next tool call
+finishes, or when the turn ends. **Send now** sends it sooner; **Pause** and
+**Resume** control automatic delivery. Cancel returns an unsent message and its
+attachments to the composer for editing.
+
+Queued messages and attachment bytes are saved on this device. Keep the app
+open and connected to deliver them, even while viewing another thread. Queues
+survive reloads and restarts but are not shared with another device. Mobile
+keeps its existing send behavior.
+
+Stop returns definitely-unsent messages to the composer and prevents pending
+uploads from starting another turn. Messages that may already have reached the
+server remain in the queue for confirmation; they cannot be edited into a second
+submission. Failed deliveries wait for **Retry**, which preserves the original
+message identity instead of submitting a duplicate.
+
+Messages recovered from the older D3 outbox or an interrupted delivery wait for
+explicit action. Review them before using **Send now** or **Retry**. Approvals,
+questions, disconnections, and conversation rewinds always pause delivery.
+Close older D3 windows and tabs before opening the updated client, so an old
+queue cannot deliver the same recovered messages alongside the new one.
 
 ## Queue messages offline on mobile
 

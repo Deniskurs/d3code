@@ -164,6 +164,7 @@ describe("client settings hydration", () => {
       agentNotificationsEnabled: false,
       agentNotificationSound: false,
       agentNotificationDesktop: false,
+      inAppNotificationsEnabled: false,
     });
 
     await ensureClientSettingsHydrated();
@@ -173,6 +174,7 @@ describe("client settings hydration", () => {
       agentNotificationsEnabled: false,
       agentNotificationSound: false,
       agentNotificationDesktop: false,
+      inAppNotificationsEnabled: false,
       notificationMode: "off",
       wordWrap: false,
     });

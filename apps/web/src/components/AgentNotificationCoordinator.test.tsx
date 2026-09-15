@@ -26,6 +26,7 @@ const boundary = vi.hoisted(() => ({
   navigate: vi.fn(),
   nativeDismiss: vi.fn(async (_id: string) => undefined),
   nativeShow: vi.fn(async (_input: { id: string }) => true),
+  nativeBadge: vi.fn(async (_badge: { count: number; image: string | null }) => undefined),
   nativeClickListeners: new Set<(ref: { environmentId: string; threadId: string }) => void>(),
   readableThreads: new Set<string>(),
   routeParams: {} as Record<string, string | undefined>,
@@ -33,6 +34,7 @@ const boundary = vi.hoisted(() => ({
     agentNotificationsEnabled: true,
     agentNotificationDesktop: true,
     agentNotificationSound: false,
+    inAppNotificationsEnabled: true,
   },
   shellStates: new Map<string, unknown>(),
   subscribers: new Map<string, (state: unknown) => void>(),
@@ -236,12 +238,14 @@ beforeEach(() => {
   boundary.navigate.mockReset();
   boundary.nativeDismiss.mockReset();
   boundary.nativeShow.mockReset().mockResolvedValue(true);
+  boundary.nativeBadge.mockClear();
   boundary.nativeClickListeners.clear();
   boundary.readableThreads.clear();
   boundary.routeParams = {};
   boundary.settings.agentNotificationsEnabled = true;
   boundary.settings.agentNotificationDesktop = true;
   boundary.settings.agentNotificationSound = false;
+  boundary.settings.inAppNotificationsEnabled = true;
   boundary.shellStates.clear();
   boundary.subscribers.clear();
   boundary.toastElements.clear();
@@ -257,6 +261,7 @@ beforeEach(() => {
   Object.defineProperty(window, "desktopBridge", {
     configurable: true,
     value: {
+      setNotificationBadge: boundary.nativeBadge,
       notifications: {
         show: boundary.nativeShow,
         dismiss: boundary.nativeDismiss,
@@ -359,7 +364,9 @@ describe("AgentNotificationCoordinator", () => {
         baselines: new Map([[environmentId, [run]]]),
       });
       await emit(environmentId, completed(run));
-      await vi.waitFor(() => expect(boundary.nativeShow).toHaveBeenCalledOnce());
+      await vi.waitFor(() =>
+        expect(boundary.nativeBadge).toHaveBeenLastCalledWith({ count: 1, image: null }),
+      );
 
       boundary.focused = true;
       boundary.visible = true;
@@ -369,6 +376,7 @@ describe("AgentNotificationCoordinator", () => {
       expect(boundary.nativeDismiss).toHaveBeenCalledWith(
         boundary.nativeShow.mock.calls[0]?.[0].id,
       );
+      expect(boundary.nativeBadge).toHaveBeenLastCalledWith({ count: 0, image: null });
     },
   );
 

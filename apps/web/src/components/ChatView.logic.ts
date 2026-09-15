@@ -18,6 +18,8 @@ import {
   type ThreadId,
   type ThreadLinkedPullRequest,
   type TurnId,
+  WORKTREE_SETUP_ACTIVITY_KIND,
+  WorktreeSetupSnapshot,
 } from "@t3tools/contracts";
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
 import { resolveAssetUrl } from "@t3tools/client-runtime/state/assets";
@@ -39,7 +41,14 @@ import {
   type ThreadShell,
   type TurnDiffSummary,
 } from "../types";
-import { type ComposerImageAttachment, type DraftThreadState } from "../composerDraftStore";
+import {
+  type ComposerImageAttachment,
+  type ComposerThreadTarget,
+  type DraftThreadState,
+  useComposerDraftStore,
+} from "../composerDraftStore";
+import { type QueuedComposerMessage, useQueuedMessageStore } from "../queuedMessageStore";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentThreadDetails } from "../state/threads";
@@ -64,6 +73,45 @@ export const MAX_HIDDEN_MOUNTED_PREVIEW_THREADS = 3;
 export const ENVIRONMENT_RECONNECT_WARNING_GRACE_MS = 2_000;
 
 export const LastInvokedScriptByProjectSchema = Schema.Record(ProjectId, Schema.String);
+
+/** A failed durable transfer never consumes the draft; typing during it wins. */
+export async function enqueueComposerDraft(
+  threadKey: string,
+  target: ComposerThreadTarget,
+  message: Omit<QueuedComposerMessage, "id">,
+): Promise<boolean> {
+  const before = useComposerDraftStore.getState().getComposerDraft(target);
+  await useQueuedMessageStore.getState().enqueue(threadKey, message);
+  const store = useComposerDraftStore.getState();
+  const current = store.getComposerDraft(target);
+  if (
+    current?.prompt !== before?.prompt ||
+    current?.images !== before?.images ||
+    current?.files !== before?.files ||
+    current?.terminalContexts !== before?.terminalContexts ||
+    current?.previewAnnotations !== before?.previewAnnotations ||
+    current?.reviewComments !== before?.reviewComments
+  ) {
+    return false;
+  }
+  store.clearComposerContent(target);
+  return true;
+}
+
+/** Keep overflowing rows whole, including their immutable input and context. */
+export function queuedMessagesToRetain(
+  messages: ReadonlyArray<QueuedComposerMessage>,
+  attachmentRoom: number,
+): string[] {
+  let room = Math.max(0, attachmentRoom);
+  return messages.flatMap((message) => {
+    if (message.dispatchAttempted || message.status === "submitted") return [];
+    const count = message.images.length + message.files.length;
+    if (count > room) return [message.id];
+    room -= count;
+    return [];
+  });
+}
 
 export function agentControlledBrowserCloseConfirmation(
   surfaces: readonly RightPanelSurface[],
@@ -251,13 +299,64 @@ export function toolGroupConsumesUpwardNavigation(target: EventTarget | null): b
   return false;
 }
 
+const decodeWorktreeSetupSnapshot = Schema.decodeUnknownOption(WorktreeSetupSnapshot);
+
+/**
+ * The worktree setup the server recorded on the thread, if any: running once
+ * the bootstrap created the thread, then the settled outcome. It is what a
+ * reload or a second client renders, and what tells them to attach the live
+ * stream while it still says running.
+ */
+export function findRecordedWorktreeSetup(
+  activities: ReadonlyArray<{ readonly kind: string; readonly payload: unknown }>,
+  threadId: ThreadId,
+): WorktreeSetupSnapshot | null {
+  for (let index = activities.length - 1; index >= 0; index -= 1) {
+    const activity = activities[index]!;
+    if (activity.kind !== WORKTREE_SETUP_ACTIVITY_KIND) continue;
+    const decoded = decodeWorktreeSetupSnapshot(activity.payload);
+    if (Option.isSome(decoded) && decoded.value.threadId === threadId) return decoded.value;
+  }
+  return null;
+}
+
+/**
+ * Which setup snapshot the timeline shows, if any. The live stream wins while
+ * it has a newer sequence; the recorded activity covers everything else. A
+ * running setup always shows. Once settled, the card stays only while it
+ * still says something the turn does not: the turn has not started yet, or a
+ * stage failed and the turn is still running so the exit code stays reachable.
+ */
+export function resolveVisibleWorktreeSetup(input: {
+  live: WorktreeSetupSnapshot | null;
+  recorded: WorktreeSetupSnapshot | null;
+  turnStarted: boolean;
+  isWorking: boolean;
+}): WorktreeSetupSnapshot | null {
+  const snapshot =
+    input.live && (!input.recorded || input.live.sequence >= input.recorded.sequence)
+      ? input.live
+      : input.recorded;
+  if (!snapshot) return null;
+  if (snapshot.phase === "running") return snapshot;
+  if (snapshot.phase !== "done") return snapshot;
+  if (!input.turnStarted) return snapshot;
+  const stageFailed = snapshot.stages.some((stage) => stage.status === "failed");
+  return stageFailed && input.isWorking ? snapshot : null;
+}
+
 export function resolveDraftHeroState(input: {
   isLocalDraftThread: boolean;
   hasTimelineEntries: boolean;
   isWorking: boolean;
   draftHeroDockRequested: boolean;
   backgroundSubmissionPending: boolean;
+  /** A worktree setup card is on the timeline, so the timeline must stay visible. */
+  hasWorktreeSetupCard?: boolean;
 }): boolean {
+  if (input.hasWorktreeSetupCard) {
+    return false;
+  }
   if (input.backgroundSubmissionPending) {
     return true;
   }
@@ -400,7 +499,7 @@ export function resolveThreadSwitchTimeline<T extends readonly unknown[]>(input:
 
 export function resolveDraftPromotionNavigationTarget(input: {
   serverThreadRef: ScopedThreadRef | null;
-  serverThread: Pick<Thread, "latestTurn" | "session"> | null | undefined;
+  serverThread: Pick<Thread, "latestTurn" | "session" | "messages"> | null | undefined;
   backgroundSubmissionPending: boolean;
 }): ScopedThreadRef | null {
   if (input.backgroundSubmissionPending) {
@@ -410,9 +509,13 @@ export function resolveDraftPromotionNavigationTarget(input: {
   const turnStarted = input.serverThread?.latestTurn?.startedAt != null;
   const startupStopped =
     sessionStatus === "error" || sessionStatus === "stopped" || sessionStatus === "interrupted";
-  // Keep local preparation feedback mounted until the server can render the
-  // running turn or its startup error on the canonical thread route.
-  return turnStarted || startupStopped ? input.serverThreadRef : null;
+  // A worktree bootstrap persists the user message before the turn, so the
+  // thread route can render the send and the live setup by itself. Otherwise
+  // keep the draft mounted until the server can render the running turn or
+  // its startup error.
+  const messagePersisted =
+    input.serverThread?.messages.some((message) => message.role === "user") ?? false;
+  return turnStarted || startupStopped || messagePersisted ? input.serverThreadRef : null;
 }
 
 export function scheduleEnvironmentReconnectWarning(showWarning: () => void): () => void {

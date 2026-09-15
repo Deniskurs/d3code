@@ -19,7 +19,7 @@ export function NotificationSettings() {
       {...searchableSetting("thread-notifications")}
       description={
         permissionMessage ??
-        "Choose sound and system notifications for agent alerts on this device while D3 Code is open. Off keeps in-app alerts; turn off Agent alerts to disable all delivery."
+        "Choose sound and system notifications for agent alerts on this device while D3 Code is open. Off leaves the in-app preference unchanged; turn off Agent alerts to disable all delivery."
       }
       control={
         <Select

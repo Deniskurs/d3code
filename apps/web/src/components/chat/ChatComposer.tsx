@@ -15,6 +15,7 @@ import {
 } from "../../questionAttachments";
 import type {
   ApprovalRequestId,
+  KeybindingCommand,
   AssistantCitation,
   ChatFileAttachment,
   EnvironmentId,
@@ -62,7 +63,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import {
   clampCollapsedComposerCursor,
   type ComposerSubmissionIntent,
@@ -242,6 +243,7 @@ import { ProviderModelPicker } from "./ProviderModelPicker";
 import { type ComposerCommandItem, ComposerCommandMenu } from "./ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
+import { ComposerImageThumbnail } from "./ComposerImageThumbnail";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
@@ -1102,6 +1104,7 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
           <TooltipTrigger
             render={
               <ComposerSelectControl
+                data-composer-shortcut="composer.mode"
                 size={size}
                 className={size === "xs" ? undefined : "font-medium"}
                 aria-label="Runtime mode"
@@ -1163,9 +1166,6 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
   isEnvironmentUnavailable: boolean;
   hasSendableContent: boolean;
   preserveComposerFocusOnPointerDown?: boolean;
-  showSendWhileRunning?: boolean;
-  sendActionLabel?: string | undefined;
-  canQueueMessage?: boolean;
   onPreviousPendingQuestion: () => void;
   onInterrupt: () => void;
   onImplementPlanInNewThread: () => void;
@@ -1203,9 +1203,6 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
         isPreparingWorktree={props.isPreparingWorktree}
         hasSendableContent={props.hasSendableContent}
         preserveComposerFocusOnPointerDown={props.preserveComposerFocusOnPointerDown ?? false}
-        showSendWhileRunning={props.showSendWhileRunning ?? false}
-        sendActionLabel={props.sendActionLabel}
-        canQueueMessage={props.canQueueMessage ?? false}
         onPreviousPendingQuestion={props.onPreviousPendingQuestion}
         onInterrupt={props.onInterrupt}
         onImplementPlanInNewThread={props.onImplementPlanInNewThread}
@@ -1238,6 +1235,7 @@ export interface ChatComposerHandle {
   ) => boolean;
   openModelPicker: () => void;
   toggleModelPicker: () => void;
+  openControl: (command: KeybindingCommand) => void;
   isModelPickerOpen: () => boolean;
   compactContext: () => void;
   readSnapshot: () => {
@@ -1397,11 +1395,7 @@ export interface ChatComposerProps {
   onPageScrollKeyUp: (key: string) => void;
   onPageScrollRelease: () => void;
 
-  queuePanel?: React.ReactNode;
-
   // Callbacks
-  sendActionLabel?: string | undefined;
-  canQueueMessage?: boolean;
   onCompactContext: () => void;
   onSend: (e?: { preventDefault: () => void }, intent?: ComposerSubmissionIntent) => void;
   onInterrupt: () => void;
@@ -2623,21 +2617,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       attachmentTargetKey,
     ],
   );
-  const canQueueMessage = Boolean(
-    props.canQueueMessage &&
-    !isPreparingWorktree &&
-    !showPlanFollowUpPrompt &&
-    !activePendingProgress,
-  );
   const collapsedComposerPrimaryActionDisabled =
-    (!canQueueMessage && (phase === "running" || isSendBusy || isConnecting)) ||
-    isPreparingWorktree ||
+    phase === "running" ||
+    isSendBusy ||
     isSendDisabled ||
+    isConnecting ||
     noProviderAvailable ||
     projectSelectionRequired ||
     environmentUnavailable !== null ||
     !composerSendState.hasSendableContent;
-  const collapsedComposerPrimaryActionLabel = props.sendActionLabel ?? "Send message";
+  const collapsedComposerPrimaryActionLabel = "Send message";
   const showMobilePendingAnswerActions =
     isMobileViewport && !isComposerCollapsedMobile && pendingPrimaryAction !== null;
 
@@ -3702,11 +3691,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const shouldBlurMobileComposerOnSubmit = useCallback(() => {
     if (!isMobileViewport) return false;
     if (
-      (!canQueueMessage && (isSendBusy || isConnecting || phase === "running")) ||
-      isPreparingWorktree ||
+      isSendBusy ||
       isSendDisabled ||
+      isConnecting ||
       noProviderAvailable ||
-      environmentUnavailable !== null
+      environmentUnavailable !== null ||
+      phase === "running"
     ) {
       return false;
     }
@@ -3717,12 +3707,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   }, [
     activePendingProgress,
     activePendingResolvedAnswers,
-    canQueueMessage,
     composerSendState.hasSendableContent,
     environmentUnavailable,
     isConnecting,
     isMobileViewport,
-    isPreparingWorktree,
     isSendBusy,
     isSendDisabled,
     noProviderAvailable,
@@ -4691,7 +4679,19 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             }}
           >
             {image.previewUrl ? (
-              <img src={image.previewUrl} alt="" className="size-full object-cover" />
+              <ComposerImageThumbnail
+                file={image.file}
+                alt=""
+                className="size-full object-cover"
+                fallback={
+                  <PierreEntryIcon
+                    pathValue={image.name}
+                    kind="file"
+                    theme={resolvedTheme}
+                    className="m-auto size-3.5"
+                  />
+                }
+              />
             ) : (
               <PierreEntryIcon
                 pathValue={image.name}
@@ -5507,7 +5507,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     ): boolean => {
       if (
         text.length === 0 ||
-        (isConnecting && !canQueueMessage) ||
+        isConnecting ||
         isComposerApprovalState ||
         pendingUserInputs.length > 0 ||
         projectSelectionRequired ||
@@ -5542,7 +5542,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     },
     [
       applyPromptReplacement,
-      canQueueMessage,
       isComposerApprovalState,
       isConnecting,
       pendingUserInputs.length,
@@ -5748,6 +5747,28 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         } else {
           openModelPicker();
         }
+      },
+      openControl: (command) => {
+        if (composerBlurFrameRef.current !== null) {
+          window.cancelAnimationFrame(composerBlurFrameRef.current);
+          composerBlurFrameRef.current = null;
+        }
+        flushSync(() => {
+          setIsComposerScrollCollapsed(false);
+          setIsComposerFocused(true);
+        });
+        const shell = composerFormRef.current?.closest('[data-slot="composer-shell"]');
+        const trigger = Array.from(
+          shell?.querySelectorAll<HTMLButtonElement>(
+            `button[data-composer-shortcut~="${command}"]:not(:disabled)`,
+          ) ?? [],
+        ).find(
+          (element) =>
+            !element.closest("[inert]") && element.checkVisibility({ visibilityProperty: true }),
+        );
+        if (!trigger) return;
+        trigger.focus({ preventScroll: true });
+        trigger.click();
       },
       compactContext: compactThreadContext,
       isModelPickerOpen: () => isComposerModelPickerOpen,
@@ -5963,7 +5984,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         : null}
       <ComposerBanner.Dock>
         <ComposerBanner.Column>
-          {props.queuePanel}
           <ComposerBannerStack
             key={activeThreadId}
             className="relative z-0"
@@ -6307,10 +6327,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                                   onExpandImage(preview);
                                 }}
                               >
-                                <img
-                                  src={image.previewUrl}
+                                <ComposerImageThumbnail
+                                  file={image.file}
                                   alt={image.name}
                                   className="h-full w-full object-cover"
+                                  fallback={
+                                    <span className="flex h-full items-center justify-center px-1 text-[10px] text-secondary-label">
+                                      {image.name}
+                                    </span>
+                                  }
                                 />
                               </button>
                             ) : (
@@ -6682,7 +6707,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                                   : "Ask anything, @tag files/folders, $use skills, or / for commands"
                     }
                     disabled={
-                      (isConnecting && !canQueueMessage) ||
+                      isConnecting ||
                       isComposerApprovalState ||
                       projectSelectionRequired ||
                       isChoiceOnlyPendingQuestion ||
@@ -6823,9 +6848,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     isPreparingWorktree={isPreparingWorktree}
                     hasSendableContent={composerSendState.hasSendableContent}
                     preserveComposerFocusOnPointerDown={isMobileViewport || isComposerResting}
-                    showSendWhileRunning
-                    sendActionLabel={props.sendActionLabel}
-                    canQueueMessage={canQueueMessage}
                     onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
                     onInterrupt={handleInterruptPrimaryAction}
                     onImplementPlanInNewThread={handleImplementPlanInNewThreadPrimaryAction}

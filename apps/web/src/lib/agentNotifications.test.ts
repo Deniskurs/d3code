@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { EnvironmentId, ThreadId, type ScopedThreadRef } from "@t3tools/contracts";
 import type { AgentNotification } from "@t3tools/shared/agentAwareness";
 import {
+  clearAgentNotificationBadges,
   createAgentNotificationDelivery,
   getAgentNotificationPermission,
   requestAgentNotificationPermission,
@@ -56,6 +57,7 @@ function harness() {
     agentNotificationsEnabled: true,
     agentNotificationSound: false,
     agentNotificationDesktop: true,
+    inAppNotificationsEnabled: true,
   };
   const opened: string[] = [];
   const visible = new Map<string, () => void>();
@@ -100,6 +102,7 @@ async function realmHarness(selected: ScopedThreadRef) {
       agentNotificationsEnabled: true,
       agentNotificationSound: false,
       agentNotificationDesktop: true,
+      inAppNotificationsEnabled: true,
     }),
     isSelected: (ref) =>
       selected.environmentId === ref.environmentId && selected.threadId === ref.threadId,
@@ -118,11 +121,65 @@ beforeEach(() => {
   });
   vi.stubGlobal("navigator", {});
   vi.stubGlobal("window", {});
+  clearAgentNotificationBadges();
   vi.stubGlobal("Notification", { permission: "denied", requestPermission: vi.fn() });
 });
 afterEach(() => vi.unstubAllGlobals());
 
 describe("agent notification delivery", () => {
+  it("lets the in-app opt-out retire toasts without silencing system notifications", async () => {
+    const show = vi.fn(async () => true);
+    const dismiss = vi.fn(async () => undefined);
+    vi.stubGlobal("window", { desktopBridge: { notifications: { show, dismiss } } });
+    const h = harness();
+    const first = notification();
+    await h.delivery.notify(first);
+    expect(h.visible.has(first.id)).toBe(true);
+
+    h.settings.inAppNotificationsEnabled = false;
+    h.delivery.reconcile();
+    expect(h.visible.size).toBe(0);
+    expect(dismiss).not.toHaveBeenCalled();
+
+    const second = notification({ threadId: ThreadId.make("other") });
+    await h.delivery.notify(second);
+    expect(h.visible.size).toBe(0);
+    expect(show).toHaveBeenCalledTimes(2);
+    h.delivery.clear();
+  });
+
+  it("aggregates background system badges across environments and clears without stale counts", async () => {
+    const badge = vi.fn(async () => undefined);
+    const dismiss = vi.fn(async () => undefined);
+    vi.stubGlobal("window", {
+      desktopBridge: {
+        setNotificationBadge: badge,
+        notifications: { show: vi.fn(async () => true), dismiss },
+      },
+    });
+    const first = harness();
+    const second = harness();
+    first.focus(false);
+    second.focus(false);
+    const remote = notification();
+    const local = notification({ environmentId: EnvironmentId.make("local") });
+    await first.delivery.notify(remote);
+    await second.delivery.notify(local);
+    expect(badge).toHaveBeenLastCalledWith({ count: 2, image: null });
+
+    first.delivery.dismiss(remote);
+    expect(badge).toHaveBeenLastCalledWith({ count: 1, image: null });
+    clearAgentNotificationBadges();
+    expect(badge).toHaveBeenLastCalledWith({ count: 0, image: null });
+    expect(dismiss).not.toHaveBeenCalledWith(local.id);
+
+    await first.delivery.notify(notification());
+    second.delivery.clear();
+    expect(badge).toHaveBeenLastCalledWith({ count: 1, image: null });
+    first.delivery.clear();
+    expect(badge).toHaveBeenLastCalledWith({ count: 0, image: null });
+  });
+
   it("keeps a selected background thread's native alert without an Open thread toast", async () => {
     const show = vi.fn(async () => true);
     const dismiss = vi.fn(async () => undefined);
@@ -385,6 +442,9 @@ describe("agent notification delivery", () => {
       }
       const focus = vi.fn();
       vi.stubGlobal("window", { focus });
+      vi.stubGlobal("document", {
+        createElement: () => ({ getContext: () => null }),
+      });
       vi.stubGlobal("Notification", BrowserNotification);
       const h = harness();
       const event = notification();

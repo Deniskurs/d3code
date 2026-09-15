@@ -12,6 +12,7 @@ import {
   useClientSettingsHydrated,
 } from "../hooks/useSettings";
 import {
+  clearAgentNotificationBadges,
   createAgentNotificationDelivery,
   installAgentNotificationAudio,
   type AgentNotificationDelivery,
@@ -107,8 +108,13 @@ function EnvironmentAgentNotifications({ environmentId }: { environmentId: Envir
     const delivery = deliveryRef.current;
     if (!delivery) return;
     if (!settings.agentNotificationsEnabled) delivery.clear();
-    else if (activeRef || !settings.agentNotificationDesktop) delivery.reconcile();
-  }, [activeRef, settings.agentNotificationsEnabled, settings.agentNotificationDesktop]);
+    else delivery.reconcile();
+  }, [
+    activeRef,
+    settings.agentNotificationsEnabled,
+    settings.agentNotificationDesktop,
+    settings.inAppNotificationsEnabled,
+  ]);
   return null;
 }
 
@@ -116,6 +122,18 @@ export function AgentNotificationCoordinator() {
   const { environments } = useEnvironments();
   const hydrated = useClientSettingsHydrated();
   useEffect(installAgentNotificationAudio, []);
+  useEffect(() => {
+    clearAgentNotificationBadges();
+    const unsubscribe = window.desktopBridge?.onNotificationBadgeClear?.(
+      clearAgentNotificationBadges,
+    );
+    window.addEventListener("focus", clearAgentNotificationBadges);
+    return () => {
+      unsubscribe?.();
+      window.removeEventListener("focus", clearAgentNotificationBadges);
+      clearAgentNotificationBadges();
+    };
+  }, []);
   if (!hydrated) return null;
   return environments.map(({ environmentId }) => (
     <EnvironmentAgentNotifications key={environmentId} environmentId={environmentId} />

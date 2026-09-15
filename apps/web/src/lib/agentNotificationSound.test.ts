@@ -140,6 +140,7 @@ async function client(options: { system?: boolean; native?: boolean; activate?: 
     agentNotificationsEnabled: true,
     agentNotificationSound: true,
     agentNotificationDesktop: options.system ?? false,
+    inAppNotificationsEnabled: true,
   };
   let selected: ScopedThreadRef | null = null;
   let focused = true;

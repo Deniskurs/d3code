@@ -5,6 +5,8 @@ import type { AgentNotification } from "@t3tools/shared/agentAwareness";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
+import { setNotificationBadge } from "../threadNotifications";
+
 export function getAgentNotificationPermission(): NotificationPermission | "unsupported" {
   if (window.desktopBridge?.notifications) return "granted";
   return typeof Notification === "undefined" ? "unsupported" : Notification.permission;
@@ -211,9 +213,28 @@ async function showSystemNotification(
   };
 }
 
+const pendingBadges = new Set<string>();
+
+export function clearAgentNotificationBadges() {
+  pendingBadges.clear();
+  setNotificationBadge(0);
+}
+
+function badgeSystemNotification(id: string, close: () => void): () => void {
+  pendingBadges.add(id);
+  setNotificationBadge(pendingBadges.size);
+  return () => {
+    close();
+    if (pendingBadges.delete(id)) setNotificationBadge(pendingBadges.size);
+  };
+}
+
 type NotificationSettings = Pick<
   ClientSettings,
-  "agentNotificationsEnabled" | "agentNotificationDesktop" | "agentNotificationSound"
+  | "agentNotificationsEnabled"
+  | "agentNotificationDesktop"
+  | "agentNotificationSound"
+  | "inAppNotificationsEnabled"
 >;
 
 export interface AgentNotificationDelivery {
@@ -266,7 +287,7 @@ export function createAgentNotificationDelivery(options: {
         dismiss(entry.notification);
         continue;
       }
-      if (options.isSelected(entry.notification)) {
+      if (options.isSelected(entry.notification) || !settings.inAppNotificationsEnabled) {
         entry.closeToast?.();
         entry.closeToast = null;
       }
@@ -294,9 +315,10 @@ export function createAgentNotificationDelivery(options: {
       const onOpen = () => open(notification);
       const entry = {
         notification,
-        closeToast: options.isSelected(notification)
-          ? null
-          : options.showToast(notification, onOpen),
+        closeToast:
+          options.isSelected(notification) || !options.settings().inAppNotificationsEnabled
+            ? null
+            : options.showToast(notification, onOpen),
         closeSystem: null as (() => void) | null,
       };
       active.set(key, entry);
@@ -319,7 +341,11 @@ export function createAgentNotificationDelivery(options: {
             getAgentNotificationPermission() === "granted",
         ).catch(() => false);
         if (!claimed || !canDeliver()) return;
-        entry.closeSystem = await showSystemNotification(notification, onOpen).catch(() => null);
+        const closeSystem = await showSystemNotification(notification, onOpen).catch(() => null);
+        entry.closeSystem =
+          closeSystem && !options.isAppFocused()
+            ? badgeSystemNotification(notification.id, closeSystem)
+            : closeSystem;
         reconcile();
         if (active.get(key) !== entry) entry.closeSystem?.();
       };

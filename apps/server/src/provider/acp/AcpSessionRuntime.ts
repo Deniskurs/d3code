@@ -1182,10 +1182,14 @@ const handleSessionUpdate = ({
     }
     for (const event of parsed.events) {
       if (event._tag === "ToolCallUpdated") {
-        yield* closeActiveAssistantSegment({
-          queue,
-          assistantSegmentRef,
-        });
+        // A new tool call separates assistant messages. Progress from a tool
+        // already running can interleave with text without ending that message.
+        if (params.update.sessionUpdate === "tool_call") {
+          yield* closeActiveAssistantSegment({
+            queue,
+            assistantSegmentRef,
+          });
+        }
         const { merged, decision } = yield* Ref.modify(toolCallsRef, (current) => {
           const tracked = current.get(event.toolCall.toolCallId);
           const previous = tracked?.state;

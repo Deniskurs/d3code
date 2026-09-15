@@ -1154,6 +1154,47 @@ const program = Effect.gen(function* () {
         return yield* Effect.never;
       }
 
+      if (process.env.T3_ACP_EMIT_PROGRESS_DURING_ASSISTANT === "1") {
+        const toolCallId = "background-tool";
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId,
+            title: "Background work",
+            kind: "execute",
+            status: "in_progress",
+          },
+        });
+        for (const text of ["D", "3 **queued", " messages**.", "\n\nNext paragraph."]) {
+          yield* agent.client.sessionUpdate({
+            sessionId: requestedSessionId,
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text },
+            },
+          });
+          // Identical progress updates may be coalesced, but neither they nor
+          // visible output growth are a new assistant/tool boundary.
+          yield* agent.client.sessionUpdate({
+            sessionId: requestedSessionId,
+            update: { sessionUpdate: "tool_call_update", toolCallId, status: "in_progress" },
+          });
+        }
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: { sessionUpdate: "tool_call_update", toolCallId, status: "completed" },
+        });
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: " Done." },
+          },
+        });
+        return { stopReason: "end_turn" };
+      }
+
       if (emitInterleavedAssistantToolCalls) {
         const toolCallId = "tool-call-1";
 
