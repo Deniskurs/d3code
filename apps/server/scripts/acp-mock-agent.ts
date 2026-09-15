@@ -1209,7 +1209,8 @@ const program = Effect.gen(function* () {
         yield* agent.client.sessionUpdate({
           sessionId: requestedSessionId,
           update: {
-            sessionUpdate: "tool_call",
+            sessionUpdate:
+              process.env.T3_ACP_INITIAL_TOOL_UPDATE === "1" ? "tool_call_update" : "tool_call",
             toolCallId,
             title: "Terminal",
             kind: "execute",

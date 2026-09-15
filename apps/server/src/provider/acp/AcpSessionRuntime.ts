@@ -1182,15 +1182,7 @@ const handleSessionUpdate = ({
     }
     for (const event of parsed.events) {
       if (event._tag === "ToolCallUpdated") {
-        // A new tool call separates assistant messages. Progress from a tool
-        // already running can interleave with text without ending that message.
-        if (params.update.sessionUpdate === "tool_call") {
-          yield* closeActiveAssistantSegment({
-            queue,
-            assistantSegmentRef,
-          });
-        }
-        const { merged, decision } = yield* Ref.modify(toolCallsRef, (current) => {
+        const { merged, decision, beginsToolCall } = yield* Ref.modify(toolCallsRef, (current) => {
           const tracked = current.get(event.toolCall.toolCallId);
           const previous = tracked?.state;
           const nextToolCall = mergeToolCallState(previous, event.toolCall);
@@ -1212,8 +1204,20 @@ const handleSessionUpdate = ({
               skippedSinceEmit: decision.skippedSinceEmit,
             });
           }
-          return [{ merged: nextToolCall, decision }, next] as const;
+          return [
+            {
+              merged: nextToolCall,
+              decision,
+              beginsToolCall: tracked === undefined || params.update.sessionUpdate === "tool_call",
+            },
+            next,
+          ] as const;
         });
+        // Some providers first announce a tool through tool_call_update.
+        // Subsequent progress from that tool must not split assistant text.
+        if (beginsToolCall) {
+          yield* closeActiveAssistantSegment({ queue, assistantSegmentRef });
+        }
         if (!decision.emit) {
           continue;
         }
