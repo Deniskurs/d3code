@@ -2390,59 +2390,91 @@ describe("ProviderRuntimeIngestion", () => {
     ]);
   });
 
-  it("publishes native streaming text and thinking while an OMP turn is still running", async () => {
-    const harness = await createHarness({ serverSettings: { responseStreamingMode: "turn" } });
-    const base = {
-      threadId: asThreadId("thread-1"),
-      turnId: asTurnId("omp-streaming"),
-      provider: ProviderDriverKind.make("omp"),
-      createdAt: "2026-01-01T00:00:00.000Z",
-    };
-    await harness.emitAndDrain([
-      { ...base, type: "turn.started", eventId: asEventId("omp-stream-start") },
-      {
-        ...base,
-        type: "item.updated",
-        eventId: asEventId("omp-thought-1"),
-        itemId: asItemId("omp-thought"),
-        payload: { itemType: "reasoning", status: "inProgress", detail: "Checking the files" },
-      },
-      {
-        ...base,
-        type: "item.completed",
-        eventId: asEventId("omp-thought-2"),
-        itemId: asItemId("omp-thought"),
-        payload: {
-          itemType: "reasoning",
-          status: "completed",
-          detail: "Checking the files and their tests",
+  it.each(["token", "paragraph", "turn"] as const)(
+    "honors %s delivery for OMP while preserving live thinking",
+    async (responseStreamingMode) => {
+      const harness = await createHarness({ serverSettings: { responseStreamingMode } });
+      const base = {
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("omp-streaming"),
+        provider: ProviderDriverKind.make("omp"),
+        createdAt: "2026-01-01T00:00:00.000Z",
+      };
+      await harness.emitAndDrain([
+        { ...base, type: "turn.started", eventId: asEventId("omp-stream-start") },
+        {
+          ...base,
+          type: "item.updated",
+          eventId: asEventId("omp-thought-1"),
+          itemId: asItemId("omp-thought"),
+          payload: { itemType: "reasoning", status: "inProgress", detail: "Checking the files" },
         },
-      },
-      {
-        ...base,
-        type: "content.delta",
-        eventId: asEventId("omp-answer"),
-        itemId: asItemId("omp-answer"),
-        payload: {
-          streamKind: "assistant_text",
-          deliveryMode: "streaming",
-          delta: "Here is the first part",
+        {
+          ...base,
+          type: "item.completed",
+          eventId: asEventId("omp-thought-2"),
+          itemId: asItemId("omp-thought"),
+          payload: {
+            itemType: "reasoning",
+            status: "completed",
+            detail: "Checking the files and their tests",
+          },
         },
-      },
-    ]);
-    const thread = (await harness.readModel()).threads.find((entry) => entry.id === base.threadId)!;
-    expect(thread.session?.status).toBe("running");
-    expect(thread.messages.find((message) => message.id === "assistant:omp-answer")).toMatchObject({
-      text: "Here is the first part",
-      streaming: true,
-    });
-    const thoughts = thread.activities.filter((activity) => activity.kind.startsWith("reasoning."));
-    expect(thoughts).toHaveLength(1);
-    expect(thoughts[0]).toMatchObject({
-      kind: "reasoning.completed",
-      payload: { detail: "Checking the files and their tests" },
-    });
-  });
+        {
+          ...base,
+          type: "content.delta",
+          eventId: asEventId("omp-answer"),
+          itemId: asItemId("omp-answer"),
+          payload: {
+            streamKind: "assistant_text",
+            delta: "Here is the first part\n\nStill writing",
+          },
+        },
+      ]);
+      const thread = (await harness.readModel()).threads.find(
+        (entry) => entry.id === base.threadId,
+      )!;
+      expect(thread.session?.status).toBe("running");
+      const answer = thread.messages.find((message) => message.id === "assistant:omp-answer");
+      if (responseStreamingMode === "turn") {
+        expect(answer).toBeUndefined();
+      } else {
+        expect(answer).toMatchObject({
+          text:
+            responseStreamingMode === "token"
+              ? "Here is the first part\n\nStill writing"
+              : "Here is the first part\n\n",
+          streaming: true,
+        });
+      }
+      const thoughts = thread.activities.filter((activity) =>
+        activity.kind.startsWith("reasoning."),
+      );
+      expect(thoughts).toHaveLength(1);
+      expect(thoughts[0]).toMatchObject({
+        kind: "reasoning.completed",
+        payload: { detail: "Checking the files and their tests" },
+      });
+      await harness.emitAndDrain([
+        {
+          ...base,
+          type: "item.completed",
+          eventId: asEventId("omp-answer-completed"),
+          itemId: asItemId("omp-answer"),
+          payload: { itemType: "assistant_message", status: "completed" },
+        },
+      ]);
+      const completed = (await harness.readModel()).threads.find(
+        (entry) => entry.id === base.threadId,
+      )!;
+      expect(
+        completed.messages.find((message) => message.id === "assistant:omp-answer"),
+      ).toMatchObject({
+        text: "Here is the first part\n\nStill writing",
+        streaming: false,
+      });
+    },
+  );
 
   it("buffers assistant deltas with one lifecycle query per event until completion", async () => {
     const harness = await createHarness();

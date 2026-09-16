@@ -62,6 +62,7 @@ export interface WorkLogEntry {
   toolCallId?: string;
   label: string;
   detail?: string;
+  reasoningHistoryId?: string;
   viewedImagePath?: string;
   command?: string;
   rawCommand?: string;
@@ -592,6 +593,10 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
           : activity.tone,
     sourceActivityKind: activity.kind,
   };
+  const reasoningHistoryId = asTrimmedString(payload?.reasoningHistoryId);
+  if (activity.kind.startsWith("reasoning.") && reasoningHistoryId) {
+    entry.reasoningHistoryId = reasoningHistoryId;
+  }
   if (activity.kind === "user-input.answer-submitted") {
     const answer = decodeQuestionAttachmentAnswer(payload);
     if (Option.isSome(answer)) entry.questionAnswer = answer.value;

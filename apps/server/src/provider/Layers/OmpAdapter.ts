@@ -71,6 +71,7 @@ import {
 import { type OmpAdapterShape } from "../Services/OmpAdapter.ts";
 import { ompTerminalOnlyCommand } from "../ompSessionHistory.ts";
 import { OmpReasoning } from "../ompReasoning.ts";
+import { makeReasoningHistory, splitReasoningDelta } from "../reasoningHistory.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.fromJsonString(Schema.Unknown));
 
@@ -136,6 +137,8 @@ interface OmpSessionContext {
   activeTurnId: TurnId | undefined;
   stopped: boolean;
   readonly reasoning: OmpReasoning;
+  reasoningHistoryFailedSegment: number | undefined;
+  reasoningHistoryPersistedSegment: number | undefined;
 }
 
 interface ThreadLockEntry {
@@ -178,6 +181,7 @@ export function makeOmpAdapter(ompSettings: OmpSettings, options?: OmpAdapterLiv
     const adapterScope = yield* Scope.Scope;
     const serverConfig = yield* Effect.service(ServerConfig);
     const crypto = yield* Crypto.Crypto;
+    const reasoningHistory = yield* makeReasoningHistory;
     const nativeEventLogger =
       options?.nativeEventLogger ??
       (options?.nativeEventLogPath !== undefined
@@ -222,26 +226,61 @@ export function makeOmpAdapter(ompSettings: OmpSettings, options?: OmpAdapterLiv
     const offerRuntimeEvent = (event: ProviderRuntimeEvent) =>
       PubSub.publish(runtimeEventPubSub, event).pipe(Effect.asVoid);
 
+    // A stop must not discard a drained history batch or leave a half-written JSONL record.
+    // Capacity backpressure waits at most one snapshot interval before this bounded flush.
     const emitReasoning = Effect.fn("OmpAdapter.emitReasoning")(function* (
       ctx: OmpSessionContext,
       snapshot: ReturnType<OmpReasoning["append"]>,
     ) {
       if (!snapshot || !ctx.activeTurnId) return;
+      const itemId = RuntimeItemId.make(`omp-thinking:${ctx.activeTurnId}:${snapshot.segment}`);
+      if (snapshot.delayMs > 0) yield* Effect.sleep(snapshot.delayMs);
+      if (ctx.reasoningHistoryFailedSegment !== snapshot.segment && snapshot.historyDelta) {
+        yield* reasoningHistory.append(ctx.threadId, itemId, snapshot.historyDelta).pipe(
+          Effect.tap(() =>
+            Effect.sync(() => {
+              ctx.reasoningHistoryPersistedSegment = snapshot.segment;
+            }),
+          ),
+          Effect.catch((cause) =>
+            Effect.gen(function* () {
+              ctx.reasoningHistoryFailedSegment = snapshot.segment;
+              if (cause._tag !== "ReasoningHistoryError" || cause.reason !== "capacity") {
+                ctx.reasoningHistoryPersistedSegment = undefined;
+                yield* reasoningHistory.remove(ctx.threadId, itemId).pipe(Effect.ignore);
+                yield* Effect.logWarning("OMP reasoning history unavailable", { cause });
+              } else {
+                yield* reasoningHistory.readPage(ctx.threadId, itemId).pipe(
+                  Effect.tap((page) =>
+                    Effect.sync(() => {
+                      if (page.text) ctx.reasoningHistoryPersistedSegment = snapshot.segment;
+                    }),
+                  ),
+                  Effect.ignore,
+                );
+              }
+            }),
+          ),
+        );
+      }
       yield* offerRuntimeEvent({
         type: snapshot.completed ? "item.completed" : "item.updated",
         ...(yield* makeEventStamp()),
         provider: PROVIDER,
         threadId: ctx.threadId,
         turnId: ctx.activeTurnId,
-        itemId: RuntimeItemId.make(`omp-thinking:${ctx.activeTurnId}:${snapshot.segment}`),
+        itemId,
         payload: {
           itemType: "reasoning",
           status: snapshot.completed ? "completed" : "inProgress",
           title: snapshot.completed ? "Thought process" : "Thinking",
           detail: snapshot.text,
+          ...(ctx.reasoningHistoryPersistedSegment === snapshot.segment
+            ? { data: { reasoningHistoryId: itemId } }
+            : {}),
         },
       });
-    });
+    }, Effect.uninterruptible);
 
     const retainThreadLock = (threadId: string) =>
       SynchronizedRef.modifyEffect(threadLocksRef, (current) => {
@@ -737,6 +776,8 @@ export function makeOmpAdapter(ompSettings: OmpSettings, options?: OmpAdapterLiv
               activeTurnId: undefined,
               stopped: false,
               reasoning: new OmpReasoning(),
+              reasoningHistoryFailedSegment: undefined,
+              reasoningHistoryPersistedSegment: undefined,
             };
             startupContext = ctx;
 
@@ -752,10 +793,12 @@ export function makeOmpAdapter(ompSettings: OmpSettings, options?: OmpAdapterLiv
                   }
                   switch (event._tag) {
                     case "ThoughtDelta":
-                      yield* emitReasoning(
-                        ctx,
-                        ctx.reasoning.append(event.text, Date.parse(yield* nowIso)),
-                      );
+                      for (const delta of splitReasoningDelta(event.text)) {
+                        yield* emitReasoning(
+                          ctx,
+                          ctx.reasoning.append(delta, Date.parse(yield* nowIso)),
+                        );
+                      }
                       return;
                     case "AvailableCommandsUpdated":
                       if (options?.onAvailableCommands) {
@@ -859,7 +902,6 @@ export function makeOmpAdapter(ompSettings: OmpSettings, options?: OmpAdapterLiv
                           turnId: ctx.activeTurnId,
                           ...(event.itemId ? { itemId: event.itemId } : {}),
                           text: event.text,
-                          deliveryMode: "streaming",
                           rawPayload: event.rawPayload,
                         }),
                       );
@@ -1184,6 +1226,9 @@ export function makeOmpAdapter(ompSettings: OmpSettings, options?: OmpAdapterLiv
             }
             return result;
           }).pipe(Effect.exit);
+          // The prompt reply can arrive while emitted chunks are still being persisted.
+          // Drain the ordered event consumer before finalizing its reasoning and turn.
+          yield* ctx.acp.drainEvents;
           ctx.promptInFlight = false;
           yield* ctx.acp.clearPendingCancel;
           yield* emitReasoning(ctx, ctx.reasoning.finish());

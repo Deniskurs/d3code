@@ -37,6 +37,7 @@ import {
   type ProviderInstallState,
   ProviderSetupError,
   ResolvedKeybindingRule,
+  type ReasoningHistoryPage,
   type ServerLifecycleStreamEvent,
   ThreadId,
   TurnId,
@@ -107,6 +108,7 @@ const encodeTestJson = Schema.encodeUnknownSync(Schema.fromJsonString(Schema.Unk
 
 import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
 import * as ServerConfig from "./config.ts";
+import { makeReasoningHistory } from "./provider/reasoningHistory.ts";
 import * as DeviceService from "./device/DeviceService.ts";
 import { HTTP_ROUTER_CONFIG, makeRoutesLayer } from "./server.ts";
 import {
@@ -2169,6 +2171,80 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.equal(response.status, 200);
       assert.equal(snapshot.thread.id, threadId);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect(
+    "authenticates and pages durable reasoning history without expanding thread snapshots",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "http-reasoning-history-" });
+        const historyConfig = yield* ServerConfig.ServerConfig.pipe(
+          Effect.provide(ServerConfig.layerTest(process.cwd(), baseDir)),
+        );
+        const history = yield* makeReasoningHistory.pipe(
+          Effect.provideService(ServerConfig.ServerConfig, historyConfig),
+        );
+        const thread = makeDefaultOrchestrationThreadShell();
+        const itemId = "omp-thinking:unicode-turn:0";
+        const original = "First thought\n" + "😀 reasoning\n".repeat(8_000) + "Final thought";
+        yield* history.append(thread.id, itemId, original);
+        yield* buildAppUnderTest({
+          config: { baseDir: historyConfig.baseDir },
+          layers: {
+            projectionSnapshotQuery: {
+              getThreadShellById: (id) =>
+                Effect.succeed(id === thread.id ? Option.some(thread) : Option.none()),
+            },
+          },
+        });
+        const route = `/api/orchestration/threads/${encodeURIComponent(thread.id)}/reasoning/${encodeURIComponent(itemId)}`;
+        assert.equal((yield* HttpClient.get(route)).status, 401);
+        const cookie = yield* getAuthenticatedSessionCookieHeader();
+        const restrictedResponse = yield* HttpClient.post("/api/auth/pairing-token", {
+          headers: { cookie },
+          body: yield* HttpBody.json({ scopes: ["terminal:operate"] }),
+        });
+        assert.equal(restrictedResponse.status, 200);
+        const restricted = (yield* restrictedResponse.json) as { credential: string };
+        const restrictedCookie = yield* getAuthenticatedSessionCookieHeader(restricted.credential);
+        assert.equal(
+          (yield* HttpClient.get(route, { headers: { cookie: restrictedCookie } })).status,
+          403,
+        );
+        let cursor: number | null = 0;
+        let recovered = "";
+        let pages = 0;
+        while (cursor !== null) {
+          const response: HttpClientResponse.HttpClientResponse = yield* HttpClient.get(
+            `${route}?cursor=${cursor}`,
+            {
+              headers: { cookie },
+            },
+          );
+          assert.equal(response.status, 200);
+          const page: ReasoningHistoryPage =
+            yield* responseJsonEffect<ReasoningHistoryPage>(response);
+          recovered += page.text;
+          cursor = page.nextCursor;
+          pages++;
+        }
+        assert.isAbove(pages, 1);
+        assert.equal(recovered, original);
+        for (const cursor of ["-1", "1", "1.5", "9007199254740992"]) {
+          assert.equal(
+            (yield* HttpClient.get(`${route}?cursor=${cursor}`, { headers: { cookie } })).status,
+            400,
+          );
+        }
+        assert.equal((yield* HttpClient.get(`${route}-old`, { headers: { cookie } })).status, 404);
+        assert.equal(
+          (yield* HttpClient.get("/api/orchestration/threads/missing/reasoning/item", {
+            headers: { cookie },
+          })).status,
+          404,
+        );
+      }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
   it.effect("compresses large JSON responses through the composed routes", () =>

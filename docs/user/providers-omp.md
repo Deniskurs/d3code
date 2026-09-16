@@ -28,7 +28,23 @@ Browse and continue terminal conversations from **OMP sessions**. See [Continue 
 
 ## Live output
 
-OMP replies appear as text arrives. The live activity row shows the reported tool intent or native thinking preview. **Waiting for response** means the provider is still running without reported live activity; a completed tool is not shown as still running. Expand **Thought process** to inspect retained thinking after it finishes. Long thought blocks retain their latest 8,000 characters. Thinking availability depends on the selected model and provider.
+OMP follows **Settings → General → Behavior → Response streaming**, including
+project overrides. Choose finished paragraphs and code blocks, the full response,
+or token-by-token delivery. This changes how replies appear, not how deeply the
+model reasons.
+
+The live activity row shows reported tool intent or a bounded native thinking
+preview. **Waiting for response** means the provider is still running without
+reported live activity; a completed tool is not shown as still running. Expand
+**Thought process** to inspect the preview. When thinking history is available,
+open it to load earlier text in pages without expanding the live stream.
+
+New thinking history is retained by the connected environment and remains
+available after a server restart. Only text actually emitted by OMP is recorded;
+thinking availability depends on the selected model and provider. Text discarded
+by older D3 versions cannot be recovered by this update.
+Storage is limited to 8 MiB per thought block and 64 MiB per thread. If a limit
+is reached, saved text remains readable with a notice; the live preview continues.
 
 Delivered advisor findings appear as expandable **Advisor feedback** in the activity history, with severity and advisor name when supplied by OMP. Feedback can arrive during a task or after its answer. This shows delivered findings, not private advisor reasoning or an inferred advisor health status. It requires the D3 extension; findings previously omitted by ACP are not retroactively imported.
 

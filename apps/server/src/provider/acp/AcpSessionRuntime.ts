@@ -1208,13 +1208,16 @@ const handleSessionUpdate = ({
             {
               merged: nextToolCall,
               decision,
-              beginsToolCall: tracked === undefined || params.update.sessionUpdate === "tool_call",
+              beginsToolCall:
+                params.update.sessionUpdate === "tool_call" ||
+                (tracked === undefined &&
+                  (nextToolCall.status === "pending" || nextToolCall.status === "inProgress")),
             },
             next,
           ] as const;
         });
-        // Some providers first announce a tool through tool_call_update.
-        // Subsequent progress from that tool must not split assistant text.
+        // Some providers announce a new tool through a pending/in-progress update.
+        // Repeated terminal updates are not new calls, even after tracking retires them.
         if (beginsToolCall) {
           yield* closeActiveAssistantSegment({ queue, assistantSegmentRef });
         }

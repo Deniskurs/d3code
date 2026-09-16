@@ -1,5 +1,6 @@
 import { ArrowUpIcon, ClockIcon } from "lucide-react";
 import { ReadOnlySourcePreview } from "../files/AttachmentFilePreview";
+import { ReasoningHistory } from "./ReasoningHistory";
 import { useRightPanelStore } from "~/rightPanelStore";
 import {
   getQuestionAnswerPreview,
@@ -4278,7 +4279,11 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
     showWarningIndicator || showDestructiveRowStyle
       ? undefined
       : (workEntry.toolIcon ?? workEntry.toolSource?.icon);
-  const previewText = displayLabel ?? workEntryDisplayLabel(workEntry, workspaceRoot);
+  const hasReasoningHistory = Boolean(workEntry.reasoningHistoryId && threadRef);
+  const previewText =
+    expanded && hasReasoningHistory
+      ? workEntry.label
+      : (displayLabel ?? workEntryDisplayLabel(workEntry, workspaceRoot));
   const answerPreview = workEntry.questionAnswer
     ? getQuestionAnswerPreview(workEntry.questionAnswer)
     : null;
@@ -4291,6 +4296,7 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
         })
       : null;
   const canExpand =
+    hasReasoningHistory ||
     Boolean(workEntry.questionAnswer) ||
     (showFailedIndicator && previewText.trim().length > 0) ||
     (workEntry.itemType === "mcp_tool_call" && workEntry.toolData !== undefined) ||
@@ -4301,14 +4307,15 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
       workEntry.changedFiles?.length ||
       viewedImage,
     );
-  const expandedBody = expanded
-    ? buildToolCallExpandedBody(
-        workEntry,
-        workspaceRoot,
-        previewText,
-        viewedImage ? viewedImagePath : null,
-      )
-    : null;
+  const expandedBody =
+    expanded && !hasReasoningHistory
+      ? buildToolCallExpandedBody(
+          workEntry,
+          workspaceRoot,
+          previewText,
+          viewedImage ? viewedImagePath : null,
+        )
+      : null;
   // Reserve destructive row styling for severe failures, not routine tool errors.
   const iconWrapperClass = cn(
     "flex size-6 shrink-0 items-center justify-center",
@@ -4444,7 +4451,23 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
       {expanded && workEntry.questionAnswer ? (
         <QuestionAnswerHistory answer={workEntry.questionAnswer} />
       ) : null}
-      {expanded && canExpand && expandedBody && !workEntry.questionAnswer ? (
+      {expanded && workEntry.reasoningHistoryId && threadRef ? (
+        <ReasoningHistory
+          key={JSON.stringify([
+            threadRef.environmentId,
+            threadRef.threadId,
+            workEntry.reasoningHistoryId,
+          ])}
+          threadRef={threadRef}
+          itemId={workEntry.reasoningHistoryId}
+          preview={workEntry.detail ?? null}
+        />
+      ) : null}
+      {expanded &&
+      canExpand &&
+      expandedBody &&
+      !workEntry.questionAnswer &&
+      !hasReasoningHistory ? (
         <div
           className="mt-1 ms-7 cursor-default rounded-md bg-muted/40 px-3 py-2"
           onClick={stopRowToggle}

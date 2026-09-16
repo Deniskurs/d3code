@@ -99,7 +99,10 @@ jobs:
           vp test run apps/web/src/components/ChatMarkdown.test.tsx apps/web/src/components/ChatMarkdown.workspace-images.test.tsx apps/web/src/components/MermaidDiagram.test.tsx apps/web/src/components/mermaidRenderer.test.ts apps/web/src/components/files/FilePreviewPanel.test.ts apps/server/src/assets/AssetAccess.test.ts apps/server/src/http.test.ts apps/desktop/src/electron/ElectronProtocol.test.ts
           vp test run apps/web/src/hooks/useSettings.test.ts apps/web/src/components/files/AttachmentFilePreview.test.tsx
           vp test run apps/web/src/queuedMessagePersistence.test.ts apps/web/src/queuedMessageDelivery.test.ts apps/web/src/components/ChatView.logic.test.ts apps/web/src/components/chat/MessagesTimeline.queue.test.tsx apps/server/src/provider/acp/AcpJsonRpcConnection.test.ts
+          vp test run apps/web/src/composerDraftStore.test.ts apps/web/src/components/chat/composerEventScope.test.ts
           vp test run packages/contracts/src/providerRuntime.test.ts packages/client-runtime/src/work-log/presentation.test.ts apps/mobile/src/lib/threadActivity.test.ts apps/web/src/components/chat/MessagesTimeline.test.tsx apps/server/src/provider/acp/AcpRuntimeModel.test.ts apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.activity.test.ts apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.test.ts
+          vp test run apps/server/src/provider/reasoningHistory.test.ts packages/client-runtime/src/work-log/reasoningHistory.test.ts packages/client-runtime/src/state/environmentHttpAuth.test.ts apps/web/src/components/chat/ReasoningHistory.test.tsx apps/server/src/orchestration/Layers/ThreadDeletionReactor.test.ts
+          vp test run apps/server/src/server.test.ts -t 'durable reasoning history'
           vp run --filter t3 --filter @t3tools/contracts --filter @t3tools/web --filter @t3tools/desktop --filter @t3tools/mobile --filter @t3tools/scripts typecheck
           vp run icons:check
       - name: Build Mac installer

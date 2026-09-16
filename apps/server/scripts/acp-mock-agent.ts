@@ -807,7 +807,13 @@ const program = Effect.gen(function* () {
         for (const text of ["Checking the project. ", "Then I will explain the result."]) {
           yield* agent.client.sessionUpdate({
             sessionId: requestedSessionId,
-            update: { sessionUpdate: "agent_thought_chunk", content: { type: "text", text } },
+            update: {
+              sessionUpdate: "agent_thought_chunk",
+              content: {
+                type: "text",
+                text: text.repeat(Number(process.env.T3_ACP_THINKING_REPEAT ?? 1)),
+              },
+            },
           });
         }
       }
@@ -1181,6 +1187,11 @@ const program = Effect.gen(function* () {
             update: { sessionUpdate: "tool_call_update", toolCallId, status: "in_progress" },
           });
         }
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: { sessionUpdate: "tool_call_update", toolCallId, status: "completed" },
+        });
+        // Providers can repeat a terminal update after its active state was retired.
         yield* agent.client.sessionUpdate({
           sessionId: requestedSessionId,
           update: { sessionUpdate: "tool_call_update", toolCallId, status: "completed" },

@@ -17,6 +17,7 @@ import {
   requireEnvironmentScope,
 } from "../auth/http.ts";
 import * as ProjectCloneTracker from "../project/ProjectCloneTracker.ts";
+import { makeReasoningHistory } from "../provider/reasoningHistory.ts";
 import { OrchestrationEngineService } from "./Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "./Services/ProjectionSnapshotQuery.ts";
 
@@ -27,6 +28,7 @@ export const orchestrationHttpApiLayer = HttpApiBuilder.group(
     const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
     const orchestrationEngine = yield* OrchestrationEngineService;
     const projectCloneTracker = yield* ProjectCloneTracker.ProjectCloneTracker;
+    const reasoningHistory = yield* makeReasoningHistory;
 
     return handlers
       .handle(
@@ -88,6 +90,32 @@ export const orchestrationHttpApiLayer = HttpApiBuilder.group(
             return yield* failEnvironmentNotFound("thread_not_found");
           }
           return projectThreadDetailSnapshot(snapshot.value);
+        }),
+      )
+      .handle(
+        "reasoningHistory",
+        Effect.fn("environment.orchestration.reasoningHistory")(function* (args) {
+          yield* annotateEnvironmentRequest(args.endpoint.name);
+          yield* requireEnvironmentScope(AuthOrchestrationReadScope);
+          const thread = yield* projectionSnapshotQuery
+            .getThreadShellById(args.params.threadId)
+            .pipe(
+              Effect.catch((cause) => failEnvironmentInternal("reasoning_history_failed", cause)),
+            );
+          if (Option.isNone(thread)) return yield* failEnvironmentNotFound("thread_not_found");
+          return yield* reasoningHistory
+            .readPage(args.params.threadId, args.params.itemId, args.payload.cursor)
+            .pipe(
+              Effect.catch((cause) =>
+                Effect.gen(function* () {
+                  if (cause.reason === "missing")
+                    return yield* failEnvironmentNotFound("reasoning_history_not_found");
+                  if (cause.reason === "invalid_cursor")
+                    return yield* failEnvironmentInvalidRequest("invalid_reasoning_cursor");
+                  return yield* failEnvironmentInternal("reasoning_history_failed", cause);
+                }),
+              ),
+            );
         }),
       )
       .handle(

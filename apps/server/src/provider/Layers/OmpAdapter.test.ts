@@ -14,13 +14,16 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as FileSystem from "effect/FileSystem";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 import {
   EventId,
   OmpSettings,
   ProviderDriverKind,
   ProviderInstanceId,
+  type ReasoningHistoryPage,
   ThreadId,
 } from "@t3tools/contracts";
 
@@ -33,6 +36,7 @@ import {
   selectOmpPermissionOptionId,
 } from "../acp/OmpAcpSupport.ts";
 import { makeOmpAdapter } from "./OmpAdapter.ts";
+import { makeReasoningHistory } from "../reasoningHistory.ts";
 
 const decodeOmpSettings = Schema.decodeSync(OmpSettings);
 const __dirname = NodePath.dirname(NodeURL.fileURLToPath(import.meta.url));
@@ -653,46 +657,159 @@ ompAdapterTestLayer("OmpAdapterLive", (it) => {
       }),
   );
 
-  it.effect("streams OMP text and completes native thinking before the answer", () =>
-    Effect.gen(function* () {
-      const adapter = yield* OmpAdapter;
-      const serverSettings = yield* ServerSettingsService;
-      const wrapperPath = yield* Effect.promise(() =>
-        makeMockAgentWrapper({ T3_ACP_EMIT_THINKING: "1" }),
-      );
-      yield* serverSettings.updateSettings({
-        providers: { omp: { binaryPath: wrapperPath, enabled: true } },
-      });
-      const threadId = ThreadId.make("omp-native-streaming");
-      const eventsFiber = yield* adapter.streamEvents.pipe(
-        Stream.takeUntil((event) => event.type === "turn.completed"),
-        Stream.runCollect,
-        Effect.forkChild,
-      );
-      yield* adapter.startSession({
-        threadId,
-        provider: ProviderDriverKind.make("omp"),
-        cwd: process.cwd(),
-        runtimeMode: "full-access",
-      });
-      yield* adapter.sendTurn({ threadId, input: "Explain the project" });
-      const events = Array.from(yield* Fiber.join(eventsFiber));
-      const completedThought = events.findIndex(
-        (event) => event.type === "item.completed" && event.payload.itemType === "reasoning",
-      );
-      const answer = events.findIndex((event) => event.type === "content.delta");
-      assert.isAtLeast(completedThought, 0);
-      assert.isAbove(answer, completedThought);
-      const thought = events[completedThought];
-      if (thought?.type === "item.completed")
-        assert.equal(
-          thought.payload.detail,
-          "Checking the project. Then I will explain the result.",
+  it.effect(
+    "leaves OMP text delivery to preferences and persists native thinking before the answer",
+    () =>
+      Effect.gen(function* () {
+        const adapter = yield* OmpAdapter;
+        const serverSettings = yield* ServerSettingsService;
+        const wrapperPath = yield* Effect.promise(() =>
+          makeMockAgentWrapper({ T3_ACP_EMIT_THINKING: "1" }),
         );
-      const delta = events[answer];
-      if (delta?.type === "content.delta") assert.equal(delta.payload.deliveryMode, "streaming");
-      yield* adapter.stopSession(threadId);
-    }),
+        yield* serverSettings.updateSettings({
+          providers: { omp: { binaryPath: wrapperPath, enabled: true } },
+        });
+        const threadId = ThreadId.make("omp-native-streaming");
+        const eventsFiber = yield* adapter.streamEvents.pipe(
+          Stream.takeUntil((event) => event.type === "turn.completed"),
+          Stream.runCollect,
+          Effect.forkChild,
+        );
+        yield* adapter.startSession({
+          threadId,
+          provider: ProviderDriverKind.make("omp"),
+          cwd: process.cwd(),
+          runtimeMode: "full-access",
+        });
+        yield* adapter.sendTurn({ threadId, input: "Explain the project" });
+        const events = Array.from(yield* Fiber.join(eventsFiber));
+        const completedThought = events.findIndex(
+          (event) => event.type === "item.completed" && event.payload.itemType === "reasoning",
+        );
+        const answer = events.findIndex((event) => event.type === "content.delta");
+        assert.isAtLeast(completedThought, 0);
+        assert.isAbove(answer, completedThought);
+        const thought = events[completedThought];
+        if (thought?.type === "item.completed") {
+          const history = yield* makeReasoningHistory;
+          assert.equal(
+            thought.payload.detail,
+            "Checking the project. Then I will explain the result.",
+          );
+          assert.deepEqual(thought.payload.data, { reasoningHistoryId: thought.itemId });
+          assert.deepEqual(yield* history.readPage(threadId, thought.itemId!), {
+            text: "Checking the project. Then I will explain the result.",
+            nextCursor: null,
+          });
+        }
+        yield* adapter.stopSession(threadId);
+      }),
+  );
+
+  it.effect(
+    "retains oversized native thought deltas after stop without enlarging live events",
+    () =>
+      Effect.gen(function* () {
+        const adapter = yield* OmpAdapter;
+        const serverSettings = yield* ServerSettingsService;
+        const wrapperPath = yield* Effect.promise(() =>
+          makeMockAgentWrapper({ T3_ACP_EMIT_THINKING: "1", T3_ACP_THINKING_REPEAT: "2000" }),
+        );
+        yield* serverSettings.updateSettings({
+          providers: { omp: { binaryPath: wrapperPath, enabled: true } },
+        });
+        const threadId = ThreadId.make("omp-long-thinking");
+        const eventsFiber = yield* adapter.streamEvents.pipe(
+          Stream.takeUntil((event) => event.type === "turn.completed"),
+          Stream.runCollect,
+          Effect.forkChild,
+        );
+        yield* adapter.startSession({
+          threadId,
+          provider: ProviderDriverKind.make("omp"),
+          cwd: process.cwd(),
+          runtimeMode: "full-access",
+        });
+        yield* adapter.sendTurn({ threadId, input: "Explain" });
+        const events = Array.from(yield* Fiber.join(eventsFiber));
+        yield* adapter.stopSession(threadId);
+        let itemId: string | undefined;
+        for (const event of events) {
+          if (
+            (event.type === "item.updated" || event.type === "item.completed") &&
+            event.payload.itemType === "reasoning"
+          ) {
+            assert.isAtMost(event.payload.detail!.length, 8_000);
+            itemId = event.itemId;
+          }
+        }
+        assert.isDefined(itemId);
+        const restartedHistory = yield* makeReasoningHistory;
+        let text = "";
+        let cursor: number | null = 0;
+        while (cursor !== null) {
+          const page: ReasoningHistoryPage = yield* restartedHistory.readPage(
+            threadId,
+            itemId!,
+            cursor,
+          );
+          text += page.text;
+          cursor = page.nextCursor;
+        }
+        assert.equal(
+          text,
+          "Checking the project. ".repeat(2000) + "Then I will explain the result.".repeat(2000),
+        );
+      }).pipe(TestClock.withLive),
+  );
+
+  it.effect(
+    "finishes an OMP turn when optional history storage is unwritable without advertising history",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const config = yield* ServerConfig;
+        const isolatedState = yield* fs.makeTempDirectoryScoped({
+          prefix: "omp-unwritable-history-",
+        });
+        yield* fs.writeFileString(
+          NodePath.join(isolatedState, "reasoning-history"),
+          "not a directory",
+        );
+        const wrapperPath = yield* Effect.promise(() =>
+          makeMockAgentWrapper({ T3_ACP_EMIT_THINKING: "1" }),
+        );
+        const adapter = yield* makeOmpAdapter(
+          decodeOmpSettings({ binaryPath: wrapperPath, enabled: true }),
+        ).pipe(Effect.provideService(ServerConfig, { ...config, stateDir: isolatedState }));
+        const threadId = ThreadId.make("omp-unwritable-thinking");
+        const eventsFiber = yield* adapter.streamEvents.pipe(
+          Stream.takeUntil((event) => event.type === "turn.completed"),
+          Stream.runCollect,
+          Effect.forkChild,
+        );
+        yield* adapter.startSession({
+          threadId,
+          provider: ProviderDriverKind.make("omp"),
+          cwd: process.cwd(),
+          runtimeMode: "full-access",
+        });
+        yield* adapter.sendTurn({ threadId, input: "Explain" });
+        const events = Array.from(yield* Fiber.join(eventsFiber));
+        const thought = events.find(
+          (event) => event.type === "item.completed" && event.payload.itemType === "reasoning",
+        );
+        assert.isDefined(thought);
+        if (thought?.type === "item.completed") {
+          assert.equal(
+            thought.payload.detail,
+            "Checking the project. Then I will explain the result.",
+          );
+          assert.isUndefined(thought.payload.data);
+        }
+        assert.isTrue(events.some((event) => event.type === "content.delta"));
+        yield* adapter.stopSession(threadId);
+      }),
   );
 
   it.effect("publishes native commands and keeps terminal-only commands out of prompts", () =>

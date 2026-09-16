@@ -451,6 +451,12 @@ export function runtimeEventToActivities(
         payload: {
           detail: event.payload.detail.slice(-8_000),
           status: event.payload.status,
+          ...(event.payload.data &&
+          typeof event.payload.data === "object" &&
+          "reasoningHistoryId" in event.payload.data &&
+          event.payload.data.reasoningHistoryId === event.itemId
+            ? { reasoningHistoryId: event.itemId }
+            : {}),
         },
         turnId: toTurnId(event.turnId) ?? null,
         ...maybeSequence,

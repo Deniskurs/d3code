@@ -87,6 +87,7 @@ export interface WorkLogEntry {
   turnId: TurnId | null;
   label: string;
   detail?: string;
+  reasoningHistoryId?: string;
   viewedImagePath?: string;
   command?: string;
   rawCommand?: string;
@@ -507,6 +508,10 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
       return Option.isSome(answer) ? { questionAnswer: answer.value } : {};
     })(),
   };
+  const reasoningHistoryId = asTrimmedString(payload?.reasoningHistoryId);
+  if (activity.kind.startsWith("reasoning.") && reasoningHistoryId) {
+    entry.reasoningHistoryId = reasoningHistoryId;
+  }
   const toolCallId =
     asTrimmedString(payload?.toolCallId) ?? asTrimmedString(asRecord(payload?.data)?.toolCallId);
   if (toolCallId) {
@@ -998,6 +1003,7 @@ function buildWorkEntryExpandedBody(entry: WorkLogEntry): string | null {
  * for every row (see the deferred-expansion test).
  */
 function workEntryCanExpand(entry: WorkLogEntry): boolean {
+  if (entry.reasoningHistoryId) return true;
   if (entry.questionAnswer) return true;
   if (entry.agentSpawn) return agentSpawnMembers(entry.agentSpawn).length > 0;
   if (entry.itemType === "mcp_tool_call" && entry.toolData !== undefined) return true;

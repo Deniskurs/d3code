@@ -2,6 +2,7 @@ import {
   EventId,
   ProviderDriverKind,
   RuntimeTaskId,
+  RuntimeItemId,
   ThreadId,
   type ProviderRuntimeEvent,
 } from "@t3tools/contracts";
@@ -176,5 +177,40 @@ describe("runtimeEventToActivities tool streaming persistence", () => {
     expect(activities).toHaveLength(1);
     const payload = activities[0]?.payload as Record<string, unknown>;
     expect(payload.data).toEqual(streamingData);
+  });
+});
+
+describe("runtimeEventToActivities reasoning history", () => {
+  it("persists only a matching history pointer alongside the bounded preview", () => {
+    const itemId = RuntimeItemId.make("omp-thinking:turn:0");
+    const event = {
+      ...base,
+      type: "item.completed",
+      eventId: EventId.make("thought"),
+      itemId,
+      payload: {
+        itemType: "reasoning",
+        status: "completed",
+        detail: "prefix".repeat(4_000) + " tail",
+        data: {
+          reasoningHistoryId: itemId,
+          text: "must never enter a snapshot",
+          privateData: "omit",
+        },
+      },
+    } satisfies ProviderRuntimeEvent;
+    expect(runtimeEventToActivities(event)[0]?.payload).toEqual({
+      detail: event.payload.detail.slice(-8_000),
+      status: "completed",
+      reasoningHistoryId: itemId,
+    });
+    for (const data of [undefined, {}, { reasoningHistoryId: "another-item" }]) {
+      expect(
+        runtimeEventToActivities({ ...event, payload: { ...event.payload, data } })[0]?.payload,
+      ).toEqual({
+        detail: event.payload.detail.slice(-8_000),
+        status: "completed",
+      });
+    }
   });
 });

@@ -34,6 +34,7 @@ import {
 import { fetchEnvironmentSessionState } from "./session.ts";
 import { fetchEnvironmentShellSnapshot } from "./shellSnapshotHttp.ts";
 import { fetchEnvironmentThreadSnapshot } from "./threadSnapshotHttp.ts";
+import { fetchEnvironmentReasoningHistory } from "./reasoningHistoryHttp.ts";
 
 const TARGET = new RelayConnectionTarget({
   environmentId: EnvironmentId.make("environment-1"),
@@ -212,6 +213,17 @@ const LOADERS: ReadonlyArray<{
         window: { turnLimit: 20, beforeCursor: "older-page" },
       }),
   },
+  {
+    name: "thinking history",
+    method: "GET",
+    path: "/api/orchestration/threads/thread-1/reasoning/omp-thinking%3Aturn-1%3A0",
+    response: { text: "Earlier emitted thinking", nextCursor: 124 },
+    load: (input: HttpInput) =>
+      fetchEnvironmentReasoningHistory({
+        ...input,
+        history: { threadId: THREAD.thread.id, itemId: "omp-thinking:turn-1:0", cursor: 42 },
+      }),
+  },
 ];
 
 describe("authenticated environment HTTP requests", () => {
@@ -252,6 +264,9 @@ describe("authenticated environment HTTP requests", () => {
       if (loader.name === "older thread history") {
         expect(url.searchParams.get("turnLimit")).toBe("20");
         expect(url.searchParams.get("beforeCursor")).toBe("older-page");
+      }
+      if (loader.name === "thinking history") {
+        expect(url.searchParams.get("cursor")).toBe("42");
       }
       expect(PREPARED.httpAuthorization).toMatchObject({ accessToken: "expired-token" });
     }),

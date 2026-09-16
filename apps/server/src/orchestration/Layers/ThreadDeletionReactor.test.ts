@@ -6,6 +6,7 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import { it as effectIt } from "@effect/vitest";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Cause from "effect/Cause";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -16,6 +17,8 @@ import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import { describe, expect, it } from "vite-plus/test";
 
+import { ServerConfig } from "../../config.ts";
+import { makeReasoningHistory } from "../../provider/reasoningHistory.ts";
 import {
   ProviderService,
   type ProviderServiceShape,
@@ -112,11 +115,18 @@ describe("ThreadDeletionReactor drain", () => {
         Layer.provide(Layer.succeed(ProviderService, providerService)),
         Layer.provide(Layer.succeed(TerminalManager.TerminalManager, terminalManager)),
         Layer.provide(Layer.succeed(OrchestrationEngineService, engine)),
+        Layer.provideMerge(
+          ServerConfig.layerTest(process.cwd(), { prefix: "thread-reasoning-cleanup-" }),
+        ),
+        Layer.provideMerge(NodeServices.layer),
       );
 
       yield* Effect.scoped(
         Effect.gen(function* () {
           const reactor = yield* ThreadDeletionReactor;
+          const history = yield* makeReasoningHistory;
+          yield* history.append(threadId, "item", "deleted thought");
+          yield* history.append("other-thread", "item", "retained thought");
           yield* reactor.start();
           yield* Deferred.await(firstCleanupDone);
 
@@ -132,6 +142,13 @@ describe("ThreadDeletionReactor drain", () => {
           yield* Deferred.succeed(releaseSecondEvent, undefined);
           yield* Fiber.join(drained);
           expect(stops).toEqual([1, 2]);
+          expect(yield* history.readPage(threadId, "item").pipe(Effect.flip)).toMatchObject({
+            reason: "missing",
+          });
+          expect(yield* history.readPage("other-thread", "item")).toEqual({
+            text: "retained thought",
+            nextCursor: null,
+          });
         }),
       ).pipe(Effect.provide(layer));
     }),

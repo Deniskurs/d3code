@@ -1,4 +1,5 @@
 import { QuestionAnswerHistory } from "./QuestionAnswerHistory";
+import { ReasoningHistory } from "./ReasoningHistory";
 import {
   getQuestionAnswerPreview,
   hasQuestionAnswer,
@@ -32,7 +33,7 @@ import {
   View,
 } from "react-native";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
-import type { EnvironmentId, ToolActivityIcon } from "@t3tools/contracts";
+import type { EnvironmentId, ThreadId, ToolActivityIcon } from "@t3tools/contracts";
 import { toolActivityFaviconUrl } from "@t3tools/shared/favicon";
 
 import { AppText as Text } from "../../components/AppText";
@@ -414,6 +415,7 @@ interface ThreadWorkLogProps {
   readonly activities: ReadonlyArray<ThreadFeedActivity>;
   readonly anchorKey: string;
   readonly environmentId: EnvironmentId;
+  readonly threadId: ThreadId;
   readonly copiedRowId: string | null;
   readonly expandedRows: Readonly<Record<string, boolean>>;
   readonly rowSizing: ReturnType<typeof deriveThreadWorkLogSizing>;
@@ -437,6 +439,7 @@ export function ThreadWorkLog(props: ThreadWorkLogProps) {
         copied={props.copiedRowId === row.id}
         expanded={props.expandedRows[row.id] ?? false}
         environmentId={props.environmentId}
+        threadId={props.threadId}
         iconSubtleColor={props.iconSubtleColor}
         onCopyRow={props.onCopyRow}
         onToggleRow={props.onToggleRow}
@@ -449,6 +452,7 @@ export function ThreadWorkLog(props: ThreadWorkLogProps) {
       props.copiedRowId,
       props.expandedRows,
       props.environmentId,
+      props.threadId,
       props.iconSubtleColor,
       props.onCopyRow,
       props.onToggleRow,
@@ -745,7 +749,7 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
 ) {
   const { row, expanded } = props;
   const canExpand = row.canExpand;
-  const fullDetail = expanded ? row.getFullDetail() : null;
+  const fullDetail = expanded && !row.workEntry.reasoningHistoryId ? row.getFullDetail() : null;
   const viewedImagePath = workEntryViewedImagePath(row.workEntry);
   const toolPresentation = resolveWorkEntryToolPresentation(row.workEntry);
   const previewText = workEntryRowLabel(row.workEntry);
@@ -753,7 +757,10 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
     ? getQuestionAnswerPreview(row.workEntry.questionAnswer)
     : null;
   const accessiblePreview = [previewText, answerPreview].filter(Boolean).join(": ");
-  const displayText = workEntryRowLabel(row.workEntry, expanded);
+  const displayText =
+    expanded && row.workEntry.reasoningHistoryId
+      ? row.workEntry.label
+      : workEntryRowLabel(row.workEntry, expanded);
   const iconIsDestructive = row.icon === "alert" || row.icon === "warning";
   const failed = row.status === "failure";
   const toolIcon = row.workEntry.toolIcon ?? row.workEntry.toolSource?.icon;
@@ -877,7 +884,11 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
         </View>
       </Pressable>
 
-      {expanded && (fullDetail || viewedImagePath || row.workEntry.questionAnswer) ? (
+      {expanded &&
+      (fullDetail ||
+        viewedImagePath ||
+        row.workEntry.questionAnswer ||
+        row.workEntry.reasoningHistoryId) ? (
         <Animated.View
           entering={WORK_LOG_DETAIL_ENTER_TRANSITION}
           exiting={WORK_LOG_DETAIL_EXIT_TRANSITION}
@@ -895,17 +906,31 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
               {props.renderImage({ href: viewedImagePath, alt: null, title: null })}
             </View>
           ) : null}
-          <ScrollView
-            nestedScrollEnabled
-            directionalLockEnabled
-            showsVerticalScrollIndicator
-            className="max-h-60"
-            contentContainerStyle={{ paddingRight: 8 }}
-          >
-            <Text selectable className="font-mono text-2xs leading-normal text-foreground-muted">
-              {fullDetail}
-            </Text>
-          </ScrollView>
+          {row.workEntry.reasoningHistoryId ? (
+            <ReasoningHistory
+              key={JSON.stringify([
+                props.environmentId,
+                props.threadId,
+                row.workEntry.reasoningHistoryId,
+              ])}
+              environmentId={props.environmentId}
+              threadId={props.threadId}
+              itemId={row.workEntry.reasoningHistoryId}
+              preview={row.workEntry.detail ?? null}
+            />
+          ) : (
+            <ScrollView
+              nestedScrollEnabled
+              directionalLockEnabled
+              showsVerticalScrollIndicator
+              className="max-h-60"
+              contentContainerStyle={{ paddingRight: 8 }}
+            >
+              <Text selectable className="font-mono text-2xs leading-normal text-foreground-muted">
+                {fullDetail}
+              </Text>
+            </ScrollView>
+          )}
         </Animated.View>
       ) : null}
     </Animated.View>

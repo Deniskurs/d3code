@@ -67,6 +67,7 @@ export const EnvironmentRequestInvalidReason = Schema.Literals([
   "invalid_scope",
   "scope_not_granted",
   "invalid_command",
+  "invalid_reasoning_cursor",
 ]);
 export type EnvironmentRequestInvalidReason = typeof EnvironmentRequestInvalidReason.Type;
 
@@ -95,6 +96,7 @@ export const EnvironmentInternalErrorReason = Schema.Literals([
   "orchestration_snapshot_failed",
   "orchestration_thread_snapshot_failed",
   "orchestration_dispatch_failed",
+  "reasoning_history_failed",
   "internal_error",
 ]);
 export type EnvironmentInternalErrorReason = typeof EnvironmentInternalErrorReason.Type;
@@ -191,7 +193,10 @@ export class EnvironmentInternalError extends Schema.TaggedError<EnvironmentInte
   }
 }
 
-export const EnvironmentResourceNotFoundReason = Schema.Literals(["thread_not_found"]);
+export const EnvironmentResourceNotFoundReason = Schema.Literals([
+  "thread_not_found",
+  "reasoning_history_not_found",
+]);
 export type EnvironmentResourceNotFoundReason = typeof EnvironmentResourceNotFoundReason.Type;
 
 export class EnvironmentResourceNotFoundError extends Schema.TaggedError<EnvironmentResourceNotFoundError>()(
@@ -504,6 +509,32 @@ const EnvironmentOrchestrationThreadSnapshotQuery = {
   beforeCursor: Schema.optional(TrimmedNonEmptyString),
 };
 
+export const ReasoningHistoryInput = Schema.Struct({
+  threadId: ThreadId,
+  itemId: TrimmedNonEmptyString,
+  cursor: Schema.optional(
+    Schema.Number.check(
+      Schema.isInt(),
+      Schema.isGreaterThanOrEqualTo(0),
+      Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER),
+    ),
+  ),
+});
+export type ReasoningHistoryInput = typeof ReasoningHistoryInput.Type;
+
+export const ReasoningHistoryPage = Schema.Struct({
+  text: Schema.String,
+  truncated: Schema.optionalKey(Schema.Boolean),
+  nextCursor: Schema.NullOr(
+    Schema.Number.check(
+      Schema.isInt(),
+      Schema.isGreaterThanOrEqualTo(0),
+      Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER),
+    ),
+  ),
+});
+export type ReasoningHistoryPage = typeof ReasoningHistoryPage.Type;
+
 export class EnvironmentOrchestrationHttpApi extends HttpApiGroup.make("orchestration")
   .add(
     HttpApiEndpoint.get("snapshot", "/api/orchestration/snapshot", {
@@ -527,6 +558,27 @@ export class EnvironmentOrchestrationHttpApi extends HttpApiGroup.make("orchestr
       success: OrchestrationThreadDetailSnapshot,
       error: EnvironmentOrchestrationThreadSnapshotErrors,
     }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.get(
+      "reasoningHistory",
+      "/api/orchestration/threads/:threadId/reasoning/:itemId",
+      {
+        headers: OptionalBearerHeaders,
+        params: Schema.Struct({ threadId: ThreadId, itemId: TrimmedNonEmptyString }),
+        payload: {
+          cursor: Schema.optional(
+            Schema.FiniteFromString.check(
+              Schema.isInt(),
+              Schema.isGreaterThanOrEqualTo(0),
+              Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER),
+            ),
+          ),
+        },
+        success: ReasoningHistoryPage,
+        error: [...EnvironmentOrchestrationThreadSnapshotErrors, EnvironmentRequestInvalidError],
+      },
+    ).middleware(EnvironmentAuthenticatedAuth),
   )
   .add(
     HttpApiEndpoint.post("dispatch", "/api/orchestration/dispatch", {
