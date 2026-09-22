@@ -133,7 +133,7 @@ async function prepareQueuedInput(
     };
   }
   // Imported inputs retain their original method semantics and complete payload.
-  return message.legacyInput ? input : { ...input, deliveryMode: "steer" };
+  return message.legacyInput ? input : { ...input, deliveryMode: input.deliveryMode ?? "steer" };
 }
 
 function QueuedThread({ threadKey, threadRef }: { threadKey: string; threadRef: ScopedThreadRef }) {

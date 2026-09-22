@@ -70,6 +70,7 @@ import {
 } from "../acp/OmpAcpSupport.ts";
 import { type OmpAdapterShape } from "../Services/OmpAdapter.ts";
 import { ompTerminalOnlyCommand } from "../ompSessionHistory.ts";
+import { isOmpCommandInput } from "@t3tools/shared/ompCommands";
 import { OmpReasoning } from "../ompReasoning.ts";
 import { makeReasoningHistory, splitReasoningDelta } from "../reasoningHistory.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
@@ -1272,7 +1273,7 @@ export function makeOmpAdapter(ompSettings: OmpSettings, options?: OmpAdapterLiv
           ctx.turns.push({ id: turnId, items: [{ prompt: promptParts, result }] });
           const finalOptions = yield* ctx.acp.getConfigOptions;
           const finalModel = getOmpAcpCurrentModel(finalOptions) ?? model;
-          if (/^\/[a-z][\w:-]*(?:\s|$)/i.test(input.input?.trim() ?? "") && finalModel) {
+          if (isOmpCommandInput(input.input) && finalModel) {
             const thinking = finalOptions.find(
               (option) => option.category === "thought_level" || option.id === "thinking",
             );
@@ -1342,7 +1343,13 @@ export function makeOmpAdapter(ompSettings: OmpSettings, options?: OmpAdapterLiv
       return Effect.gen(function* () {
         const ctx = yield* requireSession(input.threadId);
         const turnId = ctx.activeTurnId;
-        if (input.deliveryMode !== "queue" && ctx.promptInFlight && turnId && !ctx.stopRequested) {
+        if (
+          input.deliveryMode !== "queue" &&
+          !isOmpCommandInput(input.input) &&
+          ctx.promptInFlight &&
+          turnId &&
+          !ctx.stopRequested
+        ) {
           const content: OmpSteeringContent[] = [];
           if (input.input?.trim()) content.push({ type: "text", text: input.input.trim() });
           for (const attachment of input.attachments ?? []) {

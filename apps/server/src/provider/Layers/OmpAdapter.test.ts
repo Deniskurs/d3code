@@ -1652,6 +1652,55 @@ ompAdapterTestLayer("OmpAdapterLive", (it) => {
     }),
   );
 
+  it.effect(
+    "dispatches native OMP commands through ACP after a running turn instead of steering text",
+    () =>
+      Effect.gen(function* () {
+        const adapter = yield* OmpAdapter;
+        const serverSettings = yield* ServerSettingsService;
+        const fs = yield* FileSystem.FileSystem;
+        const commandDirectory = yield* fs.makeTempDirectoryScoped({ prefix: "omp-command-" });
+        const commandMarker = NodePath.join(commandDirectory, "plan-state");
+        const wrapperPath = yield* Effect.promise(() =>
+          makeMockAgentWrapper({
+            T3_ACP_OMP_STEERING: "1",
+            T3_ACP_NATIVE_COMMAND_MARKER: commandMarker,
+          }),
+        );
+        yield* serverSettings.updateSettings({
+          providers: { omp: { binaryPath: wrapperPath, enabled: true } },
+        });
+        const threadId = ThreadId.make("omp-native-command-busy");
+        yield* adapter.startSession({
+          threadId,
+          provider: ProviderDriverKind.make("omp"),
+          cwd: process.cwd(),
+          runtimeMode: "full-access",
+        });
+        const waiting = yield* adapter.streamEvents.pipe(
+          Stream.filter((event) => event.threadId === threadId && event.type === "content.delta"),
+          Stream.runHead,
+          Effect.forkChild,
+        );
+        const first = yield* adapter.sendTurn({ threadId, input: "first" }).pipe(Effect.forkChild);
+        yield* Fiber.join(waiting);
+        const command = yield* adapter
+          .sendTurn({
+            threadId,
+            input: "/plan",
+            deliveryMode: "steer",
+          })
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        yield* adapter.sendTurn({ threadId, input: "finish current work", deliveryMode: "steer" });
+        const completed = yield* Fiber.join(first);
+        const executed = yield* Fiber.join(command);
+        assert.notEqual(executed.turnId, completed.turnId);
+        assert.equal((yield* adapter.readThread(threadId)).turns.length, 2);
+        assert.equal(yield* fs.readFileString(commandMarker), "plan enabled");
+        yield* adapter.stopSession(threadId);
+      }),
+  );
+
   it.effect("queues concurrent prompts as distinct turns", () =>
     Effect.gen(function* () {
       const adapter = yield* OmpAdapter;

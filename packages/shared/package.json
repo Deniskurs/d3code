@@ -335,6 +335,10 @@
       "types": "./src/d3Build.ts",
       "import": "./src/d3Build.ts"
     },
+    "./ompCommands": {
+      "types": "./src/ompCommands.ts",
+      "import": "./src/ompCommands.ts"
+    },
     "./cliRelease": {
       "types": "./src/cliRelease.ts",
       "import": "./src/cliRelease.ts"

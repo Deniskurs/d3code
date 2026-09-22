@@ -1,6 +1,7 @@
 import type { StartThreadTurnInput } from "@t3tools/client-runtime/operations";
 import { derivePendingRequests } from "@t3tools/client-runtime/pending-requests";
 import type { EnvironmentThread } from "@t3tools/client-runtime/state/shell";
+import { isOmpCommandInput } from "@t3tools/shared/ompCommands";
 
 import {
   isQueuedMessageDue,
@@ -68,6 +69,12 @@ function queuedMessageSafetyAllows(
     return false;
   const pending = derivePendingRequests(thread.activities);
   if (pending.approvals.length > 0 || pending.userInputs.length > 0) return false;
+  const phase = derivePhase(thread.session ?? null);
+  const requiresNativePrompt =
+    message.input?.deliveryMode === "queue" ||
+    (thread.session?.providerName === "omp" &&
+      isOmpCommandInput(message.input?.message.text ?? message.prompt));
+  if (requiresNativePrompt && (phase === "running" || phase === "connecting")) return false;
   if (
     !message.sendNow &&
     (thread.session?.status === "error" ||

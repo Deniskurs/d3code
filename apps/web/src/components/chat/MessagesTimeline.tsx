@@ -1519,6 +1519,7 @@ function QueuedMessageTimelineRow({
   const status = queuedMessage.status ?? "waiting";
   const inFlight = status === "sending" || status === "submitted";
   const canRestore = !inFlight && !queuedMessage.dispatchAttempted;
+  const waitsForTurnEnd = queuedMessage.input?.deliveryMode === "queue";
   const label =
     status === "failed"
       ? "Failed"
@@ -1529,7 +1530,12 @@ function QueuedMessageTimelineRow({
           : queuedMessage.holdUntilUserAction
             ? "Paused"
             : "Queued";
-  const sendLabel = status === "failed" || queuedMessage.dispatchAttempted ? "Retry" : "Send now";
+  const sendLabel =
+    status === "failed" || queuedMessage.dispatchAttempted
+      ? "Retry"
+      : waitsForTurnEnd
+        ? "Run when idle"
+        : "Send now";
   const statusLabel =
     status === "submitted"
       ? "Accepted; waiting for confirmation in the conversation"
@@ -1538,11 +1544,13 @@ function QueuedMessageTimelineRow({
         : status === "failed"
           ? "Paused after a send failure. Retry sends the same saved request."
           : queuedMessage.holdUntilUserAction
-            ? "Waits for Resume or Send now"
+            ? `Waits for Resume or ${sendLabel}`
             : queuedMessage.sendNow
               ? "Send requested; waiting until the thread can receive it"
               : row.isNext
-                ? "Sends after the next tool call or when the turn ends"
+                ? waitsForTurnEnd
+                  ? "Runs after the current response finishes"
+                  : "Sends after the next tool call or when the turn ends"
                 : "Sends after the messages above it";
   return (
     <div className="flex flex-col items-end" data-queued-message-id={queuedMessage.id}>

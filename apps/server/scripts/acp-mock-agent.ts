@@ -758,6 +758,16 @@ const program = Effect.gen(function* () {
     Effect.gen(function* () {
       const requestedSessionId = String(request.sessionId ?? sessionId);
       promptCount += 1;
+      const nativeCommandMarker = process.env.T3_ACP_NATIVE_COMMAND_MARKER;
+      const nativeCommandText = request.prompt
+        .flatMap((part) => (part.type === "text" ? [part.text] : []))
+        .join("\n")
+        .trim();
+      if (nativeCommandMarker && nativeCommandText === "/plan") {
+        // This stands in for a local native command side effect, not a model reply.
+        yield* Effect.sync(() => NodeFS.writeFileSync(nativeCommandMarker, "plan enabled"));
+        return { stopReason: "end_turn" };
+      }
       if (advisorControlPath) {
         advisorPromptActive = true;
         const text = promptResponseText ?? "<advisor>ordinary assistant text</advisor>";

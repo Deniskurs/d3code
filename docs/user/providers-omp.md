@@ -18,6 +18,12 @@ The web and desktop composer [queues follow-ups in the conversation](composer.md
 
 Other clients default to steering when sending to a running OMP session. If an OMP installation cannot load D3's steering extension, messages fall back to waiting for the current turn.
 
+Native OMP slash commands use OMP's command dispatcher, not text steering.
+If OMP is busy, they wait for the current response to finish; **Run when idle**
+does not interrupt it. Ordinary follow-ups still use tool-boundary delivery.
+Commands requiring OMP's terminal UI, such as `/tree` and `/login`, remain
+available through **OMP sessions → Continue in terminal**.
+
 ## Resume a conversation
 
 Open the same D3 thread and send your next message. D3 saves the OMP session reference with that thread. After D3 or its server restarts, it loads that OMP session again using the saved workspace and provider instance. You do not need to copy the resume command printed by OMP's terminal UI.

@@ -187,6 +187,63 @@ async function harness() {
   };
 }
 
+describe("native OMP command delivery", () => {
+  it.each([false, true])(
+    "keeps a native command out of mid-turn steering (send now=%s)",
+    (sendNow) => {
+      const entry = message("/plan");
+      entry.sendNow = sendNow;
+      const current = thread({
+        activities: [tool("finished-tool", 1)],
+        session: { ...thread().session!, providerName: "omp", status: "running" },
+      });
+      expect(
+        canDeliverQueuedMessage(entry, { thread: current, ready: true, rewinding: false }),
+      ).toBe(false);
+      expect(
+        canDeliverQueuedMessage(entry, {
+          thread: { ...current, session: { ...current.session!, status: "ready" } },
+          ready: true,
+          rewinding: false,
+        }),
+      ).toBe(true);
+    },
+  );
+
+  it("continues delivering ordinary OMP follow-ups at tool boundaries", () => {
+    const current = thread({
+      activities: [tool("finished-tool", 1)],
+      session: { ...thread().session!, providerName: "omp", status: "running" },
+    });
+    expect(
+      canDeliverQueuedMessage(message("please explain"), {
+        thread: current,
+        ready: true,
+        rewinding: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps a saved native command unclaimed until idle so Stop can still cancel it", async () => {
+    const h = await harness();
+    const current = thread({
+      activities: [tool("finished-tool", 1)],
+      session: { ...thread().session!, providerName: "omp", status: "running" },
+    });
+    h.setThread(current);
+    const entry = await h.store.getState().enqueue(key, message("/plan"));
+    await h.store.getState().requestSendNow(key, entry.id);
+    await h.run();
+    expect(h.dispatch).not.toHaveBeenCalled();
+    expect(h.prepare).not.toHaveBeenCalled();
+    const restored = await h.store.getState().drain(key);
+    expect(restored.map((item) => item.prompt)).toEqual(["/plan"]);
+    h.setThread({ ...current, session: { ...current.session!, status: "ready" } });
+    await h.run();
+    expect(h.dispatch).not.toHaveBeenCalled();
+  });
+});
+
 describe("queued delivery receipts", () => {
   it("does not treat a projected message with the pre-send ready session as acknowledgement", () => {
     const entry = {

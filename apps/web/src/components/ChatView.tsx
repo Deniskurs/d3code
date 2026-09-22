@@ -1,3 +1,4 @@
+import { isOmpCommandInput } from "@t3tools/shared/ompCommands";
 import { hasOmpAuthenticationError } from "../onboarding/providerReadiness.logic";
 import { useLoadBalancedEnvironment } from "../hooks/useLoadBalancedEnvironment";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
@@ -7613,6 +7614,9 @@ export default function ChatView(props: ChatViewProps) {
         modelSelection: structuredClone(ctxSelectedModelSelection),
         runtimeMode,
         interactionMode: sendInteractionMode,
+        ...(ctxSelectedProvider === "omp" && isOmpCommandInput(outgoingMessageText)
+          ? { deliveryMode: "queue" as const }
+          : {}),
         createdAt,
       };
       sendInFlightRef.current = true;
